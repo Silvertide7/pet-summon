@@ -2,6 +2,7 @@ package net.silvertide.petsummon.network;
 
 import io.netty.buffer.ByteBuf;
 import net.minecraft.core.UUIDUtil;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.resources.ResourceLocation;
@@ -12,14 +13,13 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Compact server-to-client representation of a bond.
+ * Compact server-to-client representation of a bond. Carries the snapshot NBT so the
+ * client can render a faithful preview of the bonded entity (correct variant,
+ * equipment, age, custom name) without an extra request/response round-trip.
  *
- * <p>{@code entityUUID} is extracted from the snapshot NBT so the client can find the
- * loaded entity (proximity check for hold-to-dismiss).</p>
- *
- * <p>{@code cooldownRemainingMs} is computed at send time. The client measures elapsed
- * time from the moment it received the roster sync, so this stays correct under any
- * server↔client clock skew — the only error is one-way network latency.</p>
+ * <p>{@code entityUUID} is extracted from the snapshot for client-side proximity
+ * checks (hold-to-dismiss). {@code cooldownRemainingMs} is computed at send time and
+ * the client measures elapsed since receive — bypasses any clock skew.</p>
  */
 public record BondView(
         UUID bondId,
@@ -29,7 +29,8 @@ public record BondView(
         ResourceLocation lastSeenDim,
         Vec3 lastSeenPos,
         boolean isActive,
-        long cooldownRemainingMs
+        long cooldownRemainingMs,
+        CompoundTag nbtSnapshot
 ) {
     public static final StreamCodec<ByteBuf, Vec3> VEC3_STREAM_CODEC = StreamCodec.composite(
             ByteBufCodecs.DOUBLE, Vec3::x,
@@ -38,7 +39,7 @@ public record BondView(
             Vec3::new
     );
 
-    // 8 fields exceeds StreamCodec.composite's max arity, so write it by hand.
+    // 9 fields exceeds StreamCodec.composite's max arity, so write it by hand.
     public static final StreamCodec<ByteBuf, BondView> STREAM_CODEC = new StreamCodec<>() {
         @Override
         public BondView decode(ByteBuf buf) {
@@ -50,7 +51,8 @@ public record BondView(
             Vec3 lastSeenPos = VEC3_STREAM_CODEC.decode(buf);
             boolean isActive = ByteBufCodecs.BOOL.decode(buf);
             long cooldownRemainingMs = ByteBufCodecs.VAR_LONG.decode(buf);
-            return new BondView(bondId, entityUUID, entityType, displayName, lastSeenDim, lastSeenPos, isActive, cooldownRemainingMs);
+            CompoundTag nbtSnapshot = ByteBufCodecs.TRUSTED_COMPOUND_TAG.decode(buf);
+            return new BondView(bondId, entityUUID, entityType, displayName, lastSeenDim, lastSeenPos, isActive, cooldownRemainingMs, nbtSnapshot);
         }
 
         @Override
@@ -63,6 +65,7 @@ public record BondView(
             VEC3_STREAM_CODEC.encode(buf, v.lastSeenPos());
             ByteBufCodecs.BOOL.encode(buf, v.isActive());
             ByteBufCodecs.VAR_LONG.encode(buf, v.cooldownRemainingMs());
+            ByteBufCodecs.TRUSTED_COMPOUND_TAG.encode(buf, v.nbtSnapshot());
         }
     };
 
@@ -80,7 +83,8 @@ public record BondView(
                 bond.lastSeenDim().location(),
                 bond.lastSeenPos(),
                 isActive,
-                cooldownRemainingMs
+                cooldownRemainingMs,
+                bond.nbtSnapshot()
         );
     }
 }

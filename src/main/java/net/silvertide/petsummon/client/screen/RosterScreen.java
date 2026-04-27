@@ -3,11 +3,12 @@ package net.silvertide.petsummon.client.screen;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.OwnableEntity;
 import net.minecraft.world.entity.Saddleable;
 import net.minecraft.world.entity.projectile.ProjectileUtil;
@@ -16,6 +17,7 @@ import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.silvertide.petsummon.client.data.ClientRosterData;
+import net.silvertide.petsummon.client.data.PreviewEntityCache;
 import net.silvertide.petsummon.config.Config;
 import net.silvertide.petsummon.network.BondView;
 import net.silvertide.petsummon.network.packet.C2SBreakBond;
@@ -31,17 +33,19 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Placeholder roster screen. Procedural rendering, no PNG textures.
- * Lists bonds with per-row Summon and Break buttons. Two-step confirm on Break.
+ * Roster screen with two-column layout: row list on the left, entity preview pane on
+ * the right. Clicking anywhere on a row body (not on a button/star) selects it,
+ * driving which pet renders in the preview pane. Default selection on open is the
+ * active pet.
  *
- * Footer surfaces a "Bind this <type>" button when the player is looking at
- * an eligible tamed pet within {@link #CLAIM_RAYCAST_DISTANCE} blocks. Eligibility
- * is checked client-side optimistically; the server re-validates on receipt.
- *
- * Polish (palette, animations, entity preview, validation tooltips) is layered on later.
+ * <p>Preview rendering goes through {@link InventoryScreen#renderEntityInInventoryFollowsMouse}
+ * with {@link LivingEntity} instances built lazily by {@link PreviewEntityCache} from
+ * each bond's snapshot NBT.</p>
  */
 public final class RosterScreen extends Screen {
-    private static final int PANEL_WIDTH = 280;
+    private static final int PANEL_WIDTH = 400;
+    private static final int ROW_W = 280;
+    private static final int PREVIEW_W = 100;
     private static final int ROW_HEIGHT = 28;
     private static final int ROW_PAD = 4;
     private static final int FOOTER_H = 32;
@@ -52,8 +56,10 @@ public final class RosterScreen extends Screen {
     // ARGB palette
     private static final int C_BG = 0xCC101418;
     private static final int C_BORDER = 0xFF4A5568;
+    private static final int C_SEPARATOR = 0xFF2A323C;
     private static final int C_ROW_BG = 0xFF1B2128;
     private static final int C_ROW_HOVER = 0xFF263039;
+    private static final int C_ROW_SELECTED = 0xFF2D3947;
     private static final int C_TEXT = 0xFFFFFFFF;
     private static final int C_TEXT_MUTED = 0xFF8FA0B0;
     private static final int C_BTN_SUMMON = 0xFF3A7F5A;
@@ -77,6 +83,8 @@ public final class RosterScreen extends Screen {
     private int panelHeight;
     private int rowsTop;
     private int rowsBottom;
+    private int previewX;       // left of preview pane (relative to screen)
+    private int separatorX;     // 1px vertical separator x
     private int claimBtnX;
     private int claimBtnY;
     private int claimBtnW;
@@ -85,10 +93,12 @@ public final class RosterScreen extends Screen {
     private UUID breakArmedBondId = null;
     private long breakArmedExpiresAt = 0L;
 
+    /** Bond shown in the preview pane. Null until first sync. Defaults to the active
+     *  pet on open; clicking a row body switches it. */
+    private UUID selectedBondId = null;
+
     /** Snapshotted at {@link #init()} only — never updated while the screen is open.
-     *  The bind footer is locked to whatever was in the player's crosshair at open time.
-     *  Server enforces distance on the actual bind packet, so if the pet wandered off
-     *  the click fails with chat feedback. */
+     *  Server enforces distance on the actual bind packet. */
     private Entity initialCandidate;
 
     public RosterScreen() {
@@ -104,9 +114,18 @@ public final class RosterScreen extends Screen {
         rowsTop = topPos + 24;
         rowsBottom = topPos + panelHeight - FOOTER_H;
 
+        // Layout: [4 pad][ROW_W rows][4 gap][1 separator][3 gap][PREVIEW_W preview][8 pad]
+        separatorX = leftPos + ROW_PAD + ROW_W + 4;
+        previewX = separatorX + 4;
+
+        // Claim/bind button spans full panel width minus padding (footer is below preview).
         claimBtnW = PANEL_WIDTH - 2 * ROW_PAD - 8;
         claimBtnX = leftPos + ROW_PAD + 4;
         claimBtnY = topPos + panelHeight - FOOTER_H + (FOOTER_H - CLAIM_BTN_H) / 2;
+
+        // Default-select the active pet so the preview shows something on open.
+        Optional<BondView> active = ClientRosterData.findActive();
+        active.ifPresent(bv -> selectedBondId = bv.bondId());
 
         // Lock in the bind candidate at open time. No re-raycast while the screen is open.
         LocalPlayer p = Minecraft.getInstance().player;
@@ -121,6 +140,12 @@ public final class RosterScreen extends Screen {
     }
 
     @Override
+    public void removed() {
+        super.removed();
+        PreviewEntityCache.clear();
+    }
+
+    @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
         super.render(g, mouseX, mouseY, partialTick);
 
@@ -129,21 +154,74 @@ public final class RosterScreen extends Screen {
 
         g.drawCenteredString(font, getTitle(), leftPos + PANEL_WIDTH / 2, topPos + 8, C_TEXT);
 
+        // Vertical separator between rows column and preview pane
+        g.fill(separatorX, rowsTop, separatorX + 1, rowsBottom, C_SEPARATOR);
+
         List<BondView> bonds = ClientRosterData.bonds();
+        // Recover from invalidated selection (broken bond): fall back to active or first.
+        if (selectedBondId != null && bonds.stream().noneMatch(b -> b.bondId().equals(selectedBondId))) {
+            selectedBondId = ClientRosterData.findActive()
+                    .map(BondView::bondId)
+                    .orElseGet(() -> bonds.isEmpty() ? null : bonds.get(0).bondId());
+        }
+
         if (bonds.isEmpty()) {
             g.drawCenteredString(font, Component.translatable("petsummon.screen.empty"),
-                    leftPos + PANEL_WIDTH / 2, (rowsTop + rowsBottom) / 2 - 4, C_TEXT_MUTED);
+                    leftPos + ROW_PAD + ROW_W / 2, (rowsTop + rowsBottom) / 2 - 4, C_TEXT_MUTED);
         } else {
-            g.enableScissor(leftPos, rowsTop, leftPos + PANEL_WIDTH, rowsBottom);
+            int rowsLeft = leftPos + ROW_PAD;
+            g.enableScissor(rowsLeft, rowsTop, rowsLeft + ROW_W, rowsBottom);
             for (int i = 0; i < bonds.size(); i++) {
                 int rowY = rowsTop + (i - scrollOffset) * ROW_HEIGHT;
                 if (rowY + ROW_HEIGHT < rowsTop || rowY > rowsBottom) continue;
-                renderRow(g, bonds.get(i), leftPos + ROW_PAD, rowY, PANEL_WIDTH - 2 * ROW_PAD, mouseX, mouseY);
+                renderRow(g, bonds.get(i), rowsLeft, rowY, ROW_W, mouseX, mouseY);
             }
             g.disableScissor();
         }
 
+        renderPreviewPane(g, mouseX, mouseY);
         renderFooter(g, mouseX, mouseY);
+    }
+
+    private void renderPreviewPane(GuiGraphics g, int mouseX, int mouseY) {
+        BondView selected = currentSelection();
+        if (selected == null) {
+            g.drawCenteredString(font, Component.translatable("petsummon.screen.preview_empty"),
+                    previewX + PREVIEW_W / 2, (rowsTop + rowsBottom) / 2 - 4, C_TEXT_MUTED);
+            return;
+        }
+
+        LivingEntity entity = PreviewEntityCache.getOrBuild(selected);
+        if (entity == null) {
+            g.drawCenteredString(font, Component.translatable("petsummon.screen.preview_unavailable"),
+                    previewX + PREVIEW_W / 2, (rowsTop + rowsBottom) / 2 - 4, C_TEXT_MUTED);
+            return;
+        }
+
+        // Adaptive scale: fit ~70% of the smaller pane axis to the entity's bounding box.
+        float w = Math.max(0.1F, entity.getBbWidth());
+        float h = Math.max(0.1F, entity.getBbHeight());
+        int paneH = rowsBottom - rowsTop;
+        int scaleByH = (int) (paneH * 0.7F / h);
+        int scaleByW = (int) (PREVIEW_W * 0.7F / w);
+        int scale = Math.max(20, Math.min(60, Math.min(scaleByH, scaleByW)));
+
+        InventoryScreen.renderEntityInInventoryFollowsMouse(
+                g,
+                previewX, rowsTop,
+                previewX + PREVIEW_W, rowsBottom,
+                scale,
+                0.0625F,
+                mouseX, mouseY,
+                entity);
+    }
+
+    private BondView currentSelection() {
+        if (selectedBondId == null) return null;
+        for (BondView b : ClientRosterData.bonds()) {
+            if (b.bondId().equals(selectedBondId)) return b;
+        }
+        return null;
     }
 
     private void renderFooter(GuiGraphics g, int mouseX, int mouseY) {
@@ -155,7 +233,6 @@ public final class RosterScreen extends Screen {
             drawButton(g, claimBtnX, claimBtnY, claimBtnW, CLAIM_BTN_H, label,
                     hover ? C_BTN_CLAIM_HOVER : C_BTN_CLAIM);
         } else {
-            // No candidate — show hint text instead of a button.
             g.drawCenteredString(font, Component.translatable("petsummon.screen.bind_hint"),
                     leftPos + PANEL_WIDTH / 2,
                     claimBtnY + (CLAIM_BTN_H - font.lineHeight) / 2 + 1,
@@ -163,19 +240,6 @@ public final class RosterScreen extends Screen {
         }
     }
 
-    /**
-     * Returns the candidate snapshotted at {@link #init()}, or null if the snapshot is
-     * gone (entity removed). The snapshot is fixed for the lifetime of this screen
-     * instance — looking at a different pet does not switch it. Server enforces
-     * distance and the rest of the gates on the actual bind packet.
-     *
-     * Why we don't check owner-match: {@link AbstractHorse} doesn't sync its owner
-     * UUID via SynchedEntityData (only the tamed flag is synced), so on the client
-     * {@code getOwnerUUID()} is null for every horse regardless of who tamed it.
-     * {@link net.minecraft.world.entity.TamableAnimal} (wolves, cats, parrots) does
-     * sync owner UUID, but to keep the gate consistent we let the server make the call.
-     * Same reason for skipping already-bonded — Bonded attachment isn't synced.
-     */
     private Entity findClaimCandidate() {
         if (initialCandidate != null && initialCandidate.isRemoved()) {
             initialCandidate = null;
@@ -206,22 +270,17 @@ public final class RosterScreen extends Screen {
     private void renderRow(GuiGraphics g, BondView bond, int x, int y, int w, int mx, int my) {
         int rowH = ROW_HEIGHT - 2;
         boolean rowHover = mx >= x && mx < x + w && my >= y && my < y + rowH;
-        g.fill(x, y, x + w, y + rowH, rowHover ? C_ROW_HOVER : C_ROW_BG);
+        boolean selected = bond.bondId().equals(selectedBondId);
+        int rowBg = selected ? C_ROW_SELECTED : (rowHover ? C_ROW_HOVER : C_ROW_BG);
+        g.fill(x, y, x + w, y + rowH, rowBg);
 
-        // Star column (active-pet toggle)
         int starCx = x + STAR_COL_W / 2;
         int starCy = y + rowH / 2;
         boolean starHover = inBox(mx, my, starCx - STAR_HIT_SIZE / 2, starCy - STAR_HIT_SIZE / 2,
                 STAR_HIT_SIZE, STAR_HIT_SIZE);
-        int starColor;
-        if (bond.isActive()) {
-            starColor = C_STAR_ACTIVE;
-        } else {
-            starColor = starHover ? C_STAR_HOVER : C_STAR_INACTIVE;
-        }
+        int starColor = bond.isActive() ? C_STAR_ACTIVE : (starHover ? C_STAR_HOVER : C_STAR_INACTIVE);
         drawStar(g, starCx, starCy, starColor);
 
-        // Name + subline (shifted right to clear the star column)
         int textX = x + STAR_COL_W + 4;
         String name = bond.displayName().orElse(bond.entityType().getPath());
         g.drawString(font, name, textX, y + 5, C_TEXT);
@@ -233,41 +292,49 @@ public final class RosterScreen extends Screen {
         int btnY = y + 4;
         int summonW = 50;
         int dismissW = 50;
-        int breakW = 45;
-        int breakX = x + w - breakW - 4;
-        int dismissX = breakX - dismissW - 4;
+        int breakSmallW = 16;
+        int rightEdge = x + w - 4;
+
+        int breakSmallX = rightEdge - breakSmallW;
+        int dismissX = breakSmallX - dismissW - 4;
         int summonX = dismissX - summonW - 4;
 
-        boolean summonHover = inBox(mx, my, summonX, btnY, summonW, btnH);
-        boolean dismissHover = inBox(mx, my, dismissX, btnY, dismissW, btnH);
-        boolean breakHover = inBox(mx, my, breakX, btnY, breakW, btnH);
         boolean armed = bond.bondId().equals(breakArmedBondId)
                 && System.currentTimeMillis() < breakArmedExpiresAt;
+        boolean summonHover = inBox(mx, my, summonX, btnY, summonW, btnH);
 
         drawButton(g, summonX, btnY, summonW, btnH,
                 Component.translatable("petsummon.screen.summon"),
                 summonHover ? C_BTN_SUMMON_HOVER : C_BTN_SUMMON);
 
-        drawButton(g, dismissX, btnY, dismissW, btnH,
-                Component.translatable("petsummon.screen.dismiss"),
-                dismissHover ? C_BTN_DISMISS_HOVER : C_BTN_DISMISS);
+        if (armed) {
+            int confirmX = dismissX;
+            int confirmW = rightEdge - confirmX;
+            boolean confirmHover = inBox(mx, my, confirmX, btnY, confirmW, btnH);
+            drawButton(g, confirmX, btnY, confirmW, btnH,
+                    Component.translatable("petsummon.screen.break_confirm"),
+                    confirmHover ? C_BTN_BREAK_CONFIRM : C_BTN_BREAK_HOVER);
+        } else {
+            boolean dismissHover = inBox(mx, my, dismissX, btnY, dismissW, btnH);
+            boolean breakHover = inBox(mx, my, breakSmallX, btnY, breakSmallW, btnH);
 
-        Component breakLabel = armed
-                ? Component.translatable("petsummon.screen.break_confirm")
-                : Component.translatable("petsummon.screen.break");
-        int breakColor = armed
-                ? C_BTN_BREAK_CONFIRM
-                : (breakHover ? C_BTN_BREAK_HOVER : C_BTN_BREAK);
-        drawButton(g, breakX, btnY, breakW, btnH, breakLabel, breakColor);
+            drawButton(g, dismissX, btnY, dismissW, btnH,
+                    Component.translatable("petsummon.screen.dismiss"),
+                    dismissHover ? C_BTN_DISMISS_HOVER : C_BTN_DISMISS);
+
+            drawButton(g, breakSmallX, btnY, breakSmallW, btnH,
+                    Component.literal("X"),
+                    breakHover ? C_BTN_BREAK_HOVER : C_BTN_BREAK);
+        }
     }
 
     /** 5x5 procedural diamond ("star" stand-in), centered at (cx, cy). */
     private static void drawStar(GuiGraphics g, int cx, int cy, int color) {
-        g.fill(cx,     cy - 2, cx + 1, cy - 1, color); // top: 1px
-        g.fill(cx - 1, cy - 1, cx + 2, cy,     color); // 3px
-        g.fill(cx - 2, cy,     cx + 3, cy + 1, color); // middle: 5px
-        g.fill(cx - 1, cy + 1, cx + 2, cy + 2, color); // 3px
-        g.fill(cx,     cy + 2, cx + 1, cy + 3, color); // bottom: 1px
+        g.fill(cx,     cy - 2, cx + 1, cy - 1, color);
+        g.fill(cx - 1, cy - 1, cx + 2, cy,     color);
+        g.fill(cx - 2, cy,     cx + 3, cy + 1, color);
+        g.fill(cx - 1, cy + 1, cx + 2, cy + 2, color);
+        g.fill(cx,     cy + 2, cx + 1, cy + 3, color);
     }
 
     @Override
@@ -277,7 +344,6 @@ public final class RosterScreen extends Screen {
         int mxAll = (int) mouseX;
         int myAll = (int) mouseY;
 
-        // Footer Bind button (only active when there's a valid candidate)
         if (inBox(mxAll, myAll, claimBtnX, claimBtnY, claimBtnW, CLAIM_BTN_H)) {
             Entity candidate = findClaimCandidate();
             if (candidate != null) {
@@ -292,24 +358,28 @@ public final class RosterScreen extends Screen {
             if (rowY + ROW_HEIGHT < rowsTop || rowY > rowsBottom) continue;
 
             int x = leftPos + ROW_PAD;
-            int w = PANEL_WIDTH - 2 * ROW_PAD;
             int rowH = ROW_HEIGHT - 2;
             int btnH = ROW_HEIGHT - 10;
             int btnY = rowY + 4;
             int summonW = 50;
             int dismissW = 50;
-            int breakW = 45;
-            int breakX = x + w - breakW - 4;
-            int dismissX = breakX - dismissW - 4;
+            int breakSmallW = 16;
+            int rightEdge = x + ROW_W - 4;
+            int breakSmallX = rightEdge - breakSmallW;
+            int dismissX = breakSmallX - dismissW - 4;
             int summonX = dismissX - summonW - 4;
 
             BondView bond = bonds.get(i);
             int mx = (int) mouseX;
             int my = (int) mouseY;
+            long now = System.currentTimeMillis();
+            boolean armed = bond.bondId().equals(breakArmedBondId) && now < breakArmedExpiresAt;
 
-            // Star toggle: clicking another pet's star promotes it to active. Clicking
-            // the already-active star is a no-op — there's always supposed to be an
-            // active pet when bonds exist, so unselecting isn't allowed.
+            // Skip rows whose vertical area the click isn't on.
+            if (my < rowY || my >= rowY + rowH) continue;
+            // And whose horizontal area the click isn't on.
+            if (mx < x || mx >= x + ROW_W) continue;
+
             int starCx = x + STAR_COL_W / 2;
             int starCy = rowY + rowH / 2;
             if (inBox(mx, my, starCx - STAR_HIT_SIZE / 2, starCy - STAR_HIT_SIZE / 2,
@@ -324,21 +394,30 @@ public final class RosterScreen extends Screen {
                 PacketDistributor.sendToServer(new C2SSummonBond(bond.bondId()));
                 return true;
             }
-            if (inBox(mx, my, dismissX, btnY, dismissW, btnH)) {
-                PacketDistributor.sendToServer(new C2SDismissBond(bond.bondId()));
-                return true;
-            }
-            if (inBox(mx, my, breakX, btnY, breakW, btnH)) {
-                long now = System.currentTimeMillis();
-                if (bond.bondId().equals(breakArmedBondId) && now < breakArmedExpiresAt) {
+
+            if (armed) {
+                int confirmX = dismissX;
+                int confirmW = rightEdge - confirmX;
+                if (inBox(mx, my, confirmX, btnY, confirmW, btnH)) {
                     PacketDistributor.sendToServer(new C2SBreakBond(bond.bondId()));
                     breakArmedBondId = null;
-                } else {
+                    return true;
+                }
+            } else {
+                if (inBox(mx, my, dismissX, btnY, dismissW, btnH)) {
+                    PacketDistributor.sendToServer(new C2SDismissBond(bond.bondId()));
+                    return true;
+                }
+                if (inBox(mx, my, breakSmallX, btnY, breakSmallW, btnH)) {
                     breakArmedBondId = bond.bondId();
                     breakArmedExpiresAt = now + BREAK_CONFIRM_TTL_MS;
+                    return true;
                 }
-                return true;
             }
+
+            // Click landed on this row's body (not on any interactive control). Select it.
+            selectedBondId = bond.bondId();
+            return true;
         }
 
         return super.mouseClicked(mouseX, mouseY, button);

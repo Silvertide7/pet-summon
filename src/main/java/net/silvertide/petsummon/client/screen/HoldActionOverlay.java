@@ -28,8 +28,11 @@ public final class HoldActionOverlay {
         int sw = mc.getWindow().getGuiScaledWidth();
         int sh = mc.getWindow().getGuiScaledHeight();
 
+        // Tucked above the hotbar / XP bar / health icons rather than smack in the middle
+        // of the view. sh - 50 keeps the bar (and its label 12px above) clear of the
+        // status bars in survival at all GUI scales.
         int barX = (sw - BAR_WIDTH) / 2;
-        int barY = sh / 2 - 30;
+        int barY = sh - 50;
 
         Component label = HoldActionState.mode() == HoldActionState.Mode.DISMISS
                 ? Component.translatable("petsummon.hud.dismissing")
