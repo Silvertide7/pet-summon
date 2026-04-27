@@ -9,5 +9,10 @@
   "petsummon.screen.break": "Break",
   "petsummon.screen.break_confirm": "Sure?",
   "petsummon.screen.bind": "Bind this %s",
-  "petsummon.screen.bind_hint": "Look at a tamed pet to bind it"
+  "petsummon.screen.bind_hint": "Look at a tamed pet to bind it",
+  "petsummon.hud.dismissing": "Dismissing…",
+  "petsummon.hud.summoning": "Summoning…",
+  "petsummon.summon.no_bonds": "No bonds to summon",
+  "petsummon.summon.no_active": "No active pet set",
+  "petsummon.summon.on_cooldown": "Summon on cooldown"
 }

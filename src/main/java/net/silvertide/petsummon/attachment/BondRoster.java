@@ -5,6 +5,7 @@ import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import net.minecraft.core.UUIDUtil;
 
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -42,17 +43,35 @@ public record BondRoster(Map<UUID, Bond> bonds, Optional<UUID> activePetId) {
         if (!bonds.containsKey(bondId)) return this;
         Map<UUID, Bond> next = new LinkedHashMap<>(bonds);
         next.remove(bondId);
-        // Clear active if the broken bond was the active one.
-        Optional<UUID> nextActive = activePetId.filter(id -> !id.equals(bondId));
+        // If the broken bond was the active one, promote the oldest remaining bond
+        // (if any). Keeps the invariant: bonds non-empty ⇒ active is set.
+        Optional<UUID> nextActive;
+        if (activePetId.isPresent() && activePetId.get().equals(bondId)) {
+            nextActive = oldestBondId(next);
+        } else {
+            nextActive = activePetId;
+        }
         return new BondRoster(next, nextActive);
     }
 
+    private static Optional<UUID> oldestBondId(Map<UUID, Bond> bonds) {
+        return bonds.values().stream()
+                .min(Comparator.comparingLong(Bond::bondedAt))
+                .map(Bond::bondId);
+    }
+
     /**
-     * Returns a roster with the given bondId set as active. If the bondId isn't present
-     * in this roster, returns this unchanged. Empty Optional clears the active pet.
+     * Returns a roster with the given bondId set as active. Constraints:
+     * <ul>
+     *   <li>If the bondId isn't present in this roster, returns this unchanged.</li>
+     *   <li>Empty Optional is rejected (returns this unchanged) when the roster has
+     *       bonds — preserves the invariant that bonds non-empty ⇒ active is set.
+     *       Clearing only succeeds when there are no bonds left.</li>
+     * </ul>
      */
     public BondRoster withActive(Optional<UUID> bondId) {
         if (bondId.isPresent() && !bonds.containsKey(bondId.get())) return this;
+        if (bondId.isEmpty() && !bonds.isEmpty()) return this;
         return new BondRoster(bonds, bondId);
     }
 

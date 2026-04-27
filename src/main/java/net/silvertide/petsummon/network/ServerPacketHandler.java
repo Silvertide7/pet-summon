@@ -9,6 +9,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import net.silvertide.petsummon.attachment.Bond;
 import net.silvertide.petsummon.attachment.BondRoster;
+import net.silvertide.petsummon.config.Config;
 import net.silvertide.petsummon.network.packet.C2SBreakBond;
 import net.silvertide.petsummon.network.packet.C2SClaimEntity;
 import net.silvertide.petsummon.network.packet.C2SDismissBond;
@@ -22,6 +23,7 @@ import net.silvertide.petsummon.server.BondManager;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public final class ServerPacketHandler {
@@ -44,14 +46,14 @@ public final class ServerPacketHandler {
                 player.sendSystemMessage(Component.literal("No bonds to summon."));
                 return;
             }
-            // Active pet wins; otherwise fall back to oldest-bonded.
-            UUID target = roster.activePetId().orElseGet(() ->
-                    roster.bonds().values().stream()
-                            .min(Comparator.comparingLong(Bond::bondedAt))
-                            .map(Bond::bondId)
-                            .orElseThrow()
-            );
-            BondManager.SummonResult result = BondManager.summon(player, target);
+            // The keybind always targets the active pet. By invariant (set on claim,
+            // restored on break, migrated on login) this is non-empty whenever bonds is.
+            Optional<UUID> activeId = roster.activePetId();
+            if (activeId.isEmpty()) {
+                player.sendSystemMessage(Component.literal("No active pet set."));
+                return;
+            }
+            BondManager.SummonResult result = BondManager.summon(player, activeId.get());
             player.sendSystemMessage(Component.literal("Summon: " + result.name()));
             if (isSummonSuccess(result)) sendRosterSync(player);
         });
@@ -122,9 +124,14 @@ public final class ServerPacketHandler {
 
     public static void sendRosterSync(ServerPlayer player) {
         BondRoster roster = player.getData(ModAttachments.BOND_ROSTER.get());
+        long now = System.currentTimeMillis();
+        long cooldownMs = Config.SUMMON_COOLDOWN_TICKS.get() * 50L;
         List<BondView> views = roster.bonds().values().stream()
                 .sorted(Comparator.comparingLong(Bond::bondedAt))
-                .map(b -> BondView.from(b, roster.isActive(b.bondId())))
+                .map(b -> {
+                    long remaining = Math.max(0L, cooldownMs - (now - b.lastSummonedAt()));
+                    return BondView.from(b, roster.isActive(b.bondId()), remaining);
+                })
                 .toList();
         PacketDistributor.sendToPlayer(player, new S2CRosterSync(views));
     }

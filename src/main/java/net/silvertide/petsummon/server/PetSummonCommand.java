@@ -150,6 +150,10 @@ public final class PetSummonCommand {
 
         Optional<UUID> next;
         if (target.equalsIgnoreCase("none") || target.equalsIgnoreCase("clear")) {
+            if (!roster.bonds().isEmpty()) {
+                ctx.getSource().sendFailure(Component.literal("Cannot clear active pet while you have bonds."));
+                return 0;
+            }
             next = Optional.empty();
         } else {
             int index;

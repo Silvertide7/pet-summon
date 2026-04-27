@@ -307,13 +307,16 @@ public final class RosterScreen extends Screen {
             int mx = (int) mouseX;
             int my = (int) mouseY;
 
-            // Star toggle
+            // Star toggle: clicking another pet's star promotes it to active. Clicking
+            // the already-active star is a no-op — there's always supposed to be an
+            // active pet when bonds exist, so unselecting isn't allowed.
             int starCx = x + STAR_COL_W / 2;
             int starCy = rowY + rowH / 2;
             if (inBox(mx, my, starCx - STAR_HIT_SIZE / 2, starCy - STAR_HIT_SIZE / 2,
                     STAR_HIT_SIZE, STAR_HIT_SIZE)) {
-                Optional<UUID> next = bond.isActive() ? Optional.empty() : Optional.of(bond.bondId());
-                PacketDistributor.sendToServer(new C2SSetActivePet(next));
+                if (!bond.isActive()) {
+                    PacketDistributor.sendToServer(new C2SSetActivePet(Optional.of(bond.bondId())));
+                }
                 return true;
             }
 

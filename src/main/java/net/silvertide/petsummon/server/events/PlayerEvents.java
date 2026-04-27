@@ -12,10 +12,12 @@ import net.silvertide.petsummon.PetSummon;
 import net.silvertide.petsummon.attachment.Bond;
 import net.silvertide.petsummon.attachment.BondRoster;
 import net.silvertide.petsummon.registry.ModAttachments;
+import net.silvertide.petsummon.network.ServerPacketHandler;
 import net.silvertide.petsummon.server.BondIndex;
 import net.silvertide.petsummon.server.OfflineSnapshot;
 import net.silvertide.petsummon.server.PetSummonSavedData;
 
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.Optional;
 import java.util.UUID;
@@ -57,6 +59,21 @@ public final class PlayerEvents {
         if (updated != roster) {
             player.setData(ModAttachments.BOND_ROSTER.get(), updated);
         }
+
+        // Legacy migration: ensure the "bonds non-empty ⇒ active set" invariant holds for
+        // players whose data predates auto-active-on-claim. Promote oldest-bonded.
+        BondRoster current = player.getData(ModAttachments.BOND_ROSTER.get());
+        if (!current.bonds().isEmpty() && current.activePetId().isEmpty()) {
+            Optional<UUID> oldest = current.bonds().values().stream()
+                    .min(Comparator.comparingLong(Bond::bondedAt))
+                    .map(Bond::bondId);
+            if (oldest.isPresent()) {
+                player.setData(ModAttachments.BOND_ROSTER.get(), current.withActive(oldest));
+            }
+        }
+
+        // Push initial roster snapshot so the keybind has data before the screen opens.
+        ServerPacketHandler.sendRosterSync(player);
     }
 
     @SubscribeEvent

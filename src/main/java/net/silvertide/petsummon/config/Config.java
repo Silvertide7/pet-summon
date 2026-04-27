@@ -45,6 +45,14 @@ public final class Config {
             .comment("If true, refuse to summon when the 3x3x3 space around the player is obstructed.")
             .define("requireSpace", true);
 
+    public static final ModConfigSpec.IntValue HOLD_TO_DISMISS_MS = BUILDER
+            .comment("Milliseconds to hold the summon keybind to confirm dismissing the active pet (when within 6 blocks).")
+            .defineInRange("holdToDismissMs", 1000, 100, 10000);
+
+    public static final ModConfigSpec.IntValue HOLD_TO_SUMMON_MS = BUILDER
+            .comment("Milliseconds to hold the summon keybind to confirm summoning (when no active pet is nearby).")
+            .defineInRange("holdToSummonMs", 1000, 100, 10000);
+
     public static final ModConfigSpec SPEC = BUILDER.build();
 
     private Config() {}

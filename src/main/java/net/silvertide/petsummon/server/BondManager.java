@@ -1,6 +1,7 @@
 package net.silvertide.petsummon.server;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
@@ -8,9 +9,12 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.core.Holder;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityDimensions;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
@@ -18,6 +22,9 @@ import net.minecraft.world.entity.OwnableEntity;
 import net.minecraft.world.entity.Saddleable;
 import net.minecraft.world.entity.TamableAnimal;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 import net.silvertide.petsummon.PetSummon;
 import net.silvertide.petsummon.attachment.Bond;
 import net.silvertide.petsummon.attachment.BondRoster;
@@ -66,6 +73,7 @@ public final class BondManager {
         NO_SUCH_BOND,
         ON_COOLDOWN,
         NO_SPACE,
+        PLAYER_AIRBORNE,
         CROSS_DIM_BLOCKED,
         SPAWN_FAILED
     }
@@ -105,7 +113,13 @@ public final class BondManager {
                 0L
         );
 
-        player.setData(ModAttachments.BOND_ROSTER.get(), roster.with(bond));
+        // First bond claimed becomes active automatically. Subsequent claims keep the
+        // existing active. Keeps the invariant: bonds non-empty ⇒ active is set.
+        BondRoster newRoster = roster.with(bond);
+        if (newRoster.activePetId().isEmpty()) {
+            newRoster = newRoster.withActive(Optional.of(bondId));
+        }
+        player.setData(ModAttachments.BOND_ROSTER.get(), newRoster);
         target.setData(ModAttachments.BONDED.get(), new Bonded(bondId, player.getUUID(), revision));
         BondIndex.get().track(bondId, target);
 
@@ -188,7 +202,9 @@ public final class BondManager {
         long cooldownMs = Config.SUMMON_COOLDOWN_TICKS.get() * 50L;
         if (now - bond.lastSummonedAt() < cooldownMs) return SummonResult.ON_COOLDOWN;
 
-        if (Config.REQUIRE_SPACE.get() && !hasSpaceAround(player)) return SummonResult.NO_SPACE;
+        // Airborne players can't summon — pet would either fall or path to an unreachable
+        // target. Applies to all summon paths (walk and materialize).
+        if (Config.REQUIRE_SPACE.get() && !isPlayerGrounded(player)) return SummonResult.PLAYER_AIRBORNE;
 
         ServerLevel playerLevel = (ServerLevel) player.level();
         PetSummonSavedData saved = PetSummonSavedData.get(playerLevel);
@@ -208,6 +224,7 @@ public final class BondManager {
                 if (distSq <= walkRange * walkRange && old instanceof Mob mob) {
                     wake(old);
                     mob.getNavigation().moveTo(player.getX(), player.getY(), player.getZ(), Config.WALK_SPEED.get());
+                    playSummonFx(playerLevel, player.getX(), player.getY(), player.getZ(), false);
                     writeSummonTimestamp(player, bond, roster);
                     return SummonResult.WALKING;
                 }
@@ -242,6 +259,16 @@ public final class BondManager {
         EntityType<?> type = BuiltInRegistries.ENTITY_TYPE.get(bond.entityType());
         if (type == null) return SummonResult.SPAWN_FAILED;
 
+        // Find a valid spawn pocket within 5x5 of the player; snap to ground.
+        Vec3 spawnPos;
+        if (Config.REQUIRE_SPACE.get()) {
+            Optional<Vec3> found = findSpawnLocation(targetLevel, player, type.getDimensions());
+            if (found.isEmpty()) return SummonResult.NO_SPACE;
+            spawnPos = found.get();
+        } else {
+            spawnPos = player.position();
+        }
+
         Entity entity = type.create(targetLevel);
         if (entity == null) return SummonResult.SPAWN_FAILED;
 
@@ -256,7 +283,7 @@ public final class BondManager {
         // just summoned them, they're not supposed to plop into a sit pose on arrival.
         wake(entity);
 
-        entity.setPos(player.getX(), player.getY(), player.getZ());
+        entity.setPos(spawnPos.x, spawnPos.y, spawnPos.z);
 
         int newRevision = saved.incrementRevision(bond.bondId());
         entity.setData(ModAttachments.BONDED.get(), new Bonded(bond.bondId(), player.getUUID(), newRevision));
@@ -264,6 +291,8 @@ public final class BondManager {
         // addFreshEntity fires EntityJoinLevelEvent, which our handler responds to by tracking
         // in BondIndex. No explicit track needed here.
         if (!targetLevel.addFreshEntity(entity)) return SummonResult.SPAWN_FAILED;
+
+        playSummonFx(targetLevel, spawnPos.x, spawnPos.y, spawnPos.z, true);
 
         // Re-read roster: the cross-dim path discards the old entity above, which fires the
         // leave event synchronously and writes a snapshot into the player's roster. Trusting
@@ -273,6 +302,19 @@ public final class BondManager {
         player.setData(ModAttachments.BOND_ROSTER.get(), currentRoster.with(updated));
 
         return SummonResult.SUMMONED_FRESH;
+    }
+
+    /**
+     * Plays the summon whistle (and optionally a poof) at the given location.
+     * {@code withParticles} is true on materialize paths (entity appears at the player)
+     * and false on the walk path (entity is already in the world, just being told to come).
+     */
+    private static void playSummonFx(ServerLevel level, double x, double y, double z, boolean withParticles) {
+        if (withParticles) {
+            level.sendParticles(ParticleTypes.POOF, x, y + 0.5D, z, 20, 0.3D, 0.3D, 0.3D, 0.05D);
+        }
+        Holder<SoundEvent> sound = SoundEvents.NOTE_BLOCK_FLUTE;
+        level.playSound(null, x, y, z, sound, SoundSource.NEUTRAL, 0.7F, 1.5F);
     }
 
     /**
@@ -293,26 +335,61 @@ public final class BondManager {
         player.setData(ModAttachments.BOND_ROSTER.get(), roster.with(updated));
     }
 
-    // TODO (FEATURES.md tier 2 — smarter spawn placement):
-    //   - Search a 5x5 (x/z) footprint for a valid 3x3x3 pocket; pick the closest free spot
-    //     rather than refusing if the player's exact tile is blocked.
-    //   - Always spawn on the ground (top of a solid block in the search area), not at the
-    //     player's feet level if they're mid-air.
-    //   - Refuse summon when the player is >1 block above ground; add a PLAYER_AIRBORNE
-    //     SummonResult and return it before this check is reached.
-    private static boolean hasSpaceAround(ServerPlayer player) {
-        BlockPos origin = player.blockPosition();
+    /**
+     * "Grounded" tolerance: the player is grounded if {@link Entity#onGround()} or there's
+     * a sturdy block within ~2 blocks below their feet. Lets a small jump or step-down
+     * succeed; refuses high-altitude flying.
+     */
+    private static boolean isPlayerGrounded(ServerPlayer player) {
+        if (player.onGround()) return true;
         Level level = player.level();
-        for (int dx = -1; dx <= 1; dx++) {
-            for (int dy = 0; dy <= 2; dy++) {
-                for (int dz = -1; dz <= 1; dz++) {
-                    BlockPos pos = origin.offset(dx, dy, dz);
-                    var state = level.getBlockState(pos);
-                    if (!state.getCollisionShape(level, pos).isEmpty()) return false;
+        BlockPos feet = player.blockPosition();
+        for (int dy = 0; dy <= 2; dy++) {
+            BlockPos check = feet.below(dy);
+            BlockState state = level.getBlockState(check);
+            if (state.isFaceSturdy(level, check, Direction.UP)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Search a 5x5 (x/z) footprint around the player for a column whose ground supports
+     * the entity's bounding box. Searches center-out (radius 0, then 1, then 2) and within
+     * each column tries the player's level first, then up to 3 blocks below for an
+     * overhang/step-down. Returns the spawn position (feet center, on top of the floor block)
+     * or empty if nothing fits.
+     */
+    private static Optional<Vec3> findSpawnLocation(ServerLevel level, ServerPlayer player, EntityDimensions dims) {
+        BlockPos pp = player.blockPosition();
+        for (int r = 0; r <= 2; r++) {
+            for (int dx = -r; dx <= r; dx++) {
+                for (int dz = -r; dz <= r; dz++) {
+                    if (Math.max(Math.abs(dx), Math.abs(dz)) != r) continue; // ring only
+                    Optional<Vec3> spot = tryColumn(level, pp.offset(dx, 0, dz), dims);
+                    if (spot.isPresent()) return spot;
                 }
             }
         }
-        return true;
+        return Optional.empty();
+    }
+
+    private static Optional<Vec3> tryColumn(ServerLevel level, BlockPos start, EntityDimensions dims) {
+        int minY = level.getMinBuildHeight();
+        for (int dy = 0; dy <= 3; dy++) {
+            BlockPos top = start.below(dy);
+            BlockPos floor = top.below();
+            if (floor.getY() < minY) return Optional.empty();
+            BlockState floorState = level.getBlockState(floor);
+            if (!floorState.isFaceSturdy(level, floor, Direction.UP)) continue;
+            // Floor is solid — check pocket above fits the entity.
+            AABB box = dims.makeBoundingBox(top.getX() + 0.5D, top.getY(), top.getZ() + 0.5D);
+            if (level.noCollision(box)) {
+                return Optional.of(new Vec3(top.getX() + 0.5D, top.getY(), top.getZ() + 0.5D));
+            }
+            // Solid floor but pocket blocked — give up this column.
+            return Optional.empty();
+        }
+        return Optional.empty();
     }
 
     private BondManager() {}
