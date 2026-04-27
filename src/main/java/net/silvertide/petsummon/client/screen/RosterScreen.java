@@ -75,8 +75,9 @@ public final class RosterScreen extends Screen {
     private static final int C_STAR_INACTIVE = 0xFF4A5260;
     private static final int C_STAR_HOVER = 0xFF8A95A8;
 
-    private static final int STAR_HIT_SIZE = 12;
     private static final int STAR_COL_W = 16;
+    private static final int SET_ACTIVE_BTN_H = 14;
+    private static final int SET_ACTIVE_BTN_PAD = 4;
 
     private int leftPos;
     private int topPos;
@@ -92,6 +93,24 @@ public final class RosterScreen extends Screen {
 
     private UUID breakArmedBondId = null;
     private long breakArmedExpiresAt = 0L;
+
+    /** Active hold-to-confirm timer for a row's Summon or Dismiss button. Null when no
+     *  button is being held. Mirrors the keybind hold behavior so screen clicks can't
+     *  bypass the hold gate. */
+    private RowHold rowHold = null;
+
+    private enum RowHoldAction { SUMMON, DISMISS }
+
+    private record RowHold(UUID bondId, RowHoldAction action, long startMs, long durationMs) {
+        boolean isComplete() {
+            return System.currentTimeMillis() - startMs >= durationMs;
+        }
+
+        float progress() {
+            long elapsed = System.currentTimeMillis() - startMs;
+            return Math.min(1F, elapsed / (float) durationMs);
+        }
+    }
 
     /** Bond shown in the preview pane. Null until first sync. Defaults to the active
      *  pet on open; clicking a row body switches it. */
@@ -147,6 +166,11 @@ public final class RosterScreen extends Screen {
 
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
+        // Process the active row-hold (if any): cancel on drag-off / row gone, fire on
+        // completion. Done before drawing so the buttons render in their post-fire state
+        // when the hold completes mid-frame.
+        processRowHold(mouseX, mouseY);
+
         super.render(g, mouseX, mouseY, partialTick);
 
         g.fill(leftPos, topPos, leftPos + PANEL_WIDTH, topPos + panelHeight, C_BG);
@@ -191,29 +215,45 @@ public final class RosterScreen extends Screen {
             return;
         }
 
+        // Reserve space at the bottom of the pane for the Set Active button.
+        int entityRenderBottom = rowsBottom - SET_ACTIVE_BTN_H - SET_ACTIVE_BTN_PAD * 2;
+
         LivingEntity entity = PreviewEntityCache.getOrBuild(selected);
         if (entity == null) {
             g.drawCenteredString(font, Component.translatable("petsummon.screen.preview_unavailable"),
-                    previewX + PREVIEW_W / 2, (rowsTop + rowsBottom) / 2 - 4, C_TEXT_MUTED);
-            return;
+                    previewX + PREVIEW_W / 2, (rowsTop + entityRenderBottom) / 2 - 4, C_TEXT_MUTED);
+        } else {
+            // Adaptive scale: fit ~70% of the smaller pane axis to the entity's bounding box.
+            float w = Math.max(0.1F, entity.getBbWidth());
+            float h = Math.max(0.1F, entity.getBbHeight());
+            int paneH = entityRenderBottom - rowsTop;
+            int scaleByH = (int) (paneH * 0.7F / h);
+            int scaleByW = (int) (PREVIEW_W * 0.7F / w);
+            int scale = Math.max(20, Math.min(60, Math.min(scaleByH, scaleByW)));
+
+            InventoryScreen.renderEntityInInventoryFollowsMouse(
+                    g,
+                    previewX, rowsTop,
+                    previewX + PREVIEW_W, entityRenderBottom,
+                    scale,
+                    0.0625F,
+                    mouseX, mouseY,
+                    entity);
         }
 
-        // Adaptive scale: fit ~70% of the smaller pane axis to the entity's bounding box.
-        float w = Math.max(0.1F, entity.getBbWidth());
-        float h = Math.max(0.1F, entity.getBbHeight());
-        int paneH = rowsBottom - rowsTop;
-        int scaleByH = (int) (paneH * 0.7F / h);
-        int scaleByW = (int) (PREVIEW_W * 0.7F / w);
-        int scale = Math.max(20, Math.min(60, Math.min(scaleByH, scaleByW)));
-
-        InventoryScreen.renderEntityInInventoryFollowsMouse(
-                g,
-                previewX, rowsTop,
-                previewX + PREVIEW_W, rowsBottom,
-                scale,
-                0.0625F,
-                mouseX, mouseY,
-                entity);
+        // Set Active button at the bottom of the pane.
+        int btnX = previewX + 4;
+        int btnY = rowsBottom - SET_ACTIVE_BTN_H - SET_ACTIVE_BTN_PAD;
+        int btnW = PREVIEW_W - 8;
+        boolean isActive = selected.isActive();
+        boolean hover = !isActive && inBox(mouseX, mouseY, btnX, btnY, btnW, SET_ACTIVE_BTN_H);
+        Component label = isActive
+                ? Component.translatable("petsummon.screen.is_active")
+                : Component.translatable("petsummon.screen.set_active");
+        int color = isActive
+                ? C_STAR_ACTIVE
+                : (hover ? C_BTN_CLAIM_HOVER : C_BTN_CLAIM);
+        drawButton(g, btnX, btnY, btnW, SET_ACTIVE_BTN_H, label, color);
     }
 
     private BondView currentSelection() {
@@ -267,6 +307,69 @@ public final class RosterScreen extends Screen {
         return true;
     }
 
+    private void processRowHold(int mouseX, int mouseY) {
+        if (rowHold == null) return;
+
+        // Locate the held row in the (possibly resorted) bond list.
+        List<BondView> bonds = ClientRosterData.bonds();
+        int rowIndex = -1;
+        for (int i = 0; i < bonds.size(); i++) {
+            if (bonds.get(i).bondId().equals(rowHold.bondId())) {
+                rowIndex = i;
+                break;
+            }
+        }
+        if (rowIndex < 0) {
+            rowHold = null;
+            return;
+        }
+
+        int rowY = rowsTop + (rowIndex - scrollOffset) * ROW_HEIGHT;
+        if (rowY + ROW_HEIGHT - 2 <= rowsTop || rowY >= rowsBottom) {
+            // Scrolled out of view — cancel.
+            rowHold = null;
+            return;
+        }
+
+        int x = leftPos + ROW_PAD;
+        int btnH = ROW_HEIGHT - 10;
+        int btnY = rowY + 4;
+        int summonW = 50;
+        int dismissW = 50;
+        int breakSmallW = 16;
+        int rightEdge = x + ROW_W - 4;
+        int breakSmallX = rightEdge - breakSmallW;
+        int dismissX = breakSmallX - dismissW - 4;
+        int summonX = dismissX - summonW - 4;
+
+        int btnX;
+        int btnW;
+        if (rowHold.action() == RowHoldAction.SUMMON) {
+            btnX = summonX;
+            btnW = summonW;
+        } else {
+            btnX = dismissX;
+            btnW = dismissW;
+        }
+
+        if (!inBox(mouseX, mouseY, btnX, btnY, btnW, btnH)) {
+            // Mouse drifted off the button — cancel.
+            rowHold = null;
+            return;
+        }
+
+        if (rowHold.isComplete()) {
+            UUID bondId = rowHold.bondId();
+            RowHoldAction action = rowHold.action();
+            rowHold = null;
+            if (action == RowHoldAction.SUMMON) {
+                PacketDistributor.sendToServer(new C2SSummonBond(bondId));
+            } else {
+                PacketDistributor.sendToServer(new C2SDismissBond(bondId));
+            }
+        }
+    }
+
     private void renderRow(GuiGraphics g, BondView bond, int x, int y, int w, int mx, int my) {
         int rowH = ROW_HEIGHT - 2;
         boolean rowHover = mx >= x && mx < x + w && my >= y && my < y + rowH;
@@ -274,11 +377,11 @@ public final class RosterScreen extends Screen {
         int rowBg = selected ? C_ROW_SELECTED : (rowHover ? C_ROW_HOVER : C_ROW_BG);
         g.fill(x, y, x + w, y + rowH, rowBg);
 
+        // Diamond is a visual indicator only — clicking it does nothing now. Active is
+        // set via the "Set Active" button under the preview pane to avoid mis-clicks.
         int starCx = x + STAR_COL_W / 2;
         int starCy = y + rowH / 2;
-        boolean starHover = inBox(mx, my, starCx - STAR_HIT_SIZE / 2, starCy - STAR_HIT_SIZE / 2,
-                STAR_HIT_SIZE, STAR_HIT_SIZE);
-        int starColor = bond.isActive() ? C_STAR_ACTIVE : (starHover ? C_STAR_HOVER : C_STAR_INACTIVE);
+        int starColor = bond.isActive() ? C_STAR_ACTIVE : C_STAR_INACTIVE;
         drawStar(g, starCx, starCy, starColor);
 
         int textX = x + STAR_COL_W + 4;
@@ -303,9 +406,19 @@ public final class RosterScreen extends Screen {
                 && System.currentTimeMillis() < breakArmedExpiresAt;
         boolean summonHover = inBox(mx, my, summonX, btnY, summonW, btnH);
 
+        // Hold progress (if this row is currently being held for one of these buttons).
+        float summonHoldProgress = 0F;
+        float dismissHoldProgress = 0F;
+        if (rowHold != null && rowHold.bondId().equals(bond.bondId())) {
+            float p = rowHold.progress();
+            if (rowHold.action() == RowHoldAction.SUMMON) summonHoldProgress = p;
+            else dismissHoldProgress = p;
+        }
+
         drawButton(g, summonX, btnY, summonW, btnH,
                 Component.translatable("petsummon.screen.summon"),
-                summonHover ? C_BTN_SUMMON_HOVER : C_BTN_SUMMON);
+                summonHover ? C_BTN_SUMMON_HOVER : C_BTN_SUMMON,
+                summonHoldProgress);
 
         if (armed) {
             int confirmX = dismissX;
@@ -320,7 +433,8 @@ public final class RosterScreen extends Screen {
 
             drawButton(g, dismissX, btnY, dismissW, btnH,
                     Component.translatable("petsummon.screen.dismiss"),
-                    dismissHover ? C_BTN_DISMISS_HOVER : C_BTN_DISMISS);
+                    dismissHover ? C_BTN_DISMISS_HOVER : C_BTN_DISMISS,
+                    dismissHoldProgress);
 
             drawButton(g, breakSmallX, btnY, breakSmallW, btnH,
                     Component.literal("X"),
@@ -348,6 +462,18 @@ public final class RosterScreen extends Screen {
             Entity candidate = findClaimCandidate();
             if (candidate != null) {
                 PacketDistributor.sendToServer(new C2SClaimEntity(candidate.getUUID()));
+                return true;
+            }
+        }
+
+        // "Set Active" button under the preview pane.
+        BondView selectedView = currentSelection();
+        if (selectedView != null && !selectedView.isActive()) {
+            int btnX = previewX + 4;
+            int btnY = rowsBottom - SET_ACTIVE_BTN_H - SET_ACTIVE_BTN_PAD;
+            int btnW = PREVIEW_W - 8;
+            if (inBox(mxAll, myAll, btnX, btnY, btnW, SET_ACTIVE_BTN_H)) {
+                PacketDistributor.sendToServer(new C2SSetActivePet(Optional.of(selectedView.bondId())));
                 return true;
             }
         }
@@ -380,18 +506,10 @@ public final class RosterScreen extends Screen {
             // And whose horizontal area the click isn't on.
             if (mx < x || mx >= x + ROW_W) continue;
 
-            int starCx = x + STAR_COL_W / 2;
-            int starCy = rowY + rowH / 2;
-            if (inBox(mx, my, starCx - STAR_HIT_SIZE / 2, starCy - STAR_HIT_SIZE / 2,
-                    STAR_HIT_SIZE, STAR_HIT_SIZE)) {
-                if (!bond.isActive()) {
-                    PacketDistributor.sendToServer(new C2SSetActivePet(Optional.of(bond.bondId())));
-                }
-                return true;
-            }
-
             if (inBox(mx, my, summonX, btnY, summonW, btnH)) {
-                PacketDistributor.sendToServer(new C2SSummonBond(bond.bondId()));
+                // Hold-to-confirm. Mirror the keybind contract so screen clicks can't bypass.
+                rowHold = new RowHold(bond.bondId(), RowHoldAction.SUMMON,
+                        System.currentTimeMillis(), Config.HOLD_TO_SUMMON_MS.get());
                 return true;
             }
 
@@ -405,7 +523,8 @@ public final class RosterScreen extends Screen {
                 }
             } else {
                 if (inBox(mx, my, dismissX, btnY, dismissW, btnH)) {
-                    PacketDistributor.sendToServer(new C2SDismissBond(bond.bondId()));
+                    rowHold = new RowHold(bond.bondId(), RowHoldAction.DISMISS,
+                            System.currentTimeMillis(), Config.HOLD_TO_DISMISS_MS.get());
                     return true;
                 }
                 if (inBox(mx, my, breakSmallX, btnY, breakSmallW, btnH)) {
@@ -421,6 +540,14 @@ public final class RosterScreen extends Screen {
         }
 
         return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (button == 0 && rowHold != null) {
+            rowHold = null;
+        }
+        return super.mouseReleased(mouseX, mouseY, button);
     }
 
     @Override
@@ -446,7 +573,15 @@ public final class RosterScreen extends Screen {
     }
 
     private void drawButton(GuiGraphics g, int x, int y, int w, int h, Component label, int color) {
+        drawButton(g, x, y, w, h, label, color, 0F);
+    }
+
+    private void drawButton(GuiGraphics g, int x, int y, int w, int h, Component label, int color, float holdProgress) {
         g.fill(x, y, x + w, y + h, color);
+        if (holdProgress > 0F) {
+            int fillW = Math.max(1, (int) (w * holdProgress));
+            g.fill(x, y, x + fillW, y + h, 0x66FFFFFF);
+        }
         g.drawCenteredString(font, label, x + w / 2, y + (h - font.lineHeight) / 2 + 1, C_TEXT);
     }
 

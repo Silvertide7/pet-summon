@@ -95,44 +95,26 @@ public final class KeybindHandler {
     }
 
     /**
-     * Returns the BondView for the nearest bonded pet within
-     * {@link HoldActionState#DISMISS_RADIUS} blocks of the local player, or null if no
-     * bonded pet is in range. If the active pet is among the nearby ones, it wins;
-     * otherwise the closest non-active bonded pet is picked.
+     * Returns the active bond's BondView if its loaded entity is within
+     * {@link HoldActionState#DISMISS_RADIUS} blocks of the local player, otherwise null.
      *
-     * "Active" governs the summon target (what does the keybind summon when no pet is
-     * near?); for dismiss, any nearby bonded pet is a valid target — the natural
-     * read of "dismiss whatever's right here."
+     * Strictly active-only: the keybind always targets the active pet. If the active
+     * is nearby, holding dismisses it; if the active is far/unloaded, holding summons
+     * it. Other bonded pets in the area do not influence the keybind — use the
+     * roster screen's Dismiss button to recall a non-active pet.
      */
     private static BondView findNearbyDismissTarget() {
         Minecraft mc = Minecraft.getInstance();
         LocalPlayer p = mc.player;
         ClientLevel level = mc.level;
         if (p == null || level == null) return null;
-        if (ClientRosterData.bonds().isEmpty()) return null;
 
-        // Prefer active if it's in range.
         Optional<BondView> active = ClientRosterData.findActive();
-        if (active.isPresent()) {
-            Entity activeEntity = findLoadedEntity(level, active.get().entityUUID());
-            if (activeEntity != null && activeEntity.distanceToSqr(p) <= HoldActionState.DISMISS_RADIUS_SQ) {
-                return active.get();
-            }
-        }
-
-        // Else the closest bonded pet within range, if any.
-        BondView closest = null;
-        double closestDistSq = HoldActionState.DISMISS_RADIUS_SQ;
-        for (BondView bv : ClientRosterData.bonds()) {
-            Entity e = findLoadedEntity(level, bv.entityUUID());
-            if (e == null) continue;
-            double distSq = e.distanceToSqr(p);
-            if (distSq <= closestDistSq) {
-                closest = bv;
-                closestDistSq = distSq;
-            }
-        }
-        return closest;
+        if (active.isEmpty()) return null;
+        Entity activeEntity = findLoadedEntity(level, active.get().entityUUID());
+        if (activeEntity == null) return null;
+        if (activeEntity.distanceToSqr(p) > HoldActionState.DISMISS_RADIUS_SQ) return null;
+        return active.get();
     }
 
     private static Entity findLoadedEntity(ClientLevel level, UUID uuid) {

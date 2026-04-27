@@ -12,6 +12,8 @@
   "petsummon.screen.bind_hint": "Look at a tamed pet to bind it",
   "petsummon.screen.preview_empty": "Select a pet",
   "petsummon.screen.preview_unavailable": "(no preview)",
+  "petsummon.screen.set_active": "Set Active",
+  "petsummon.screen.is_active": "Active",
   "petsummon.hud.dismissing": "Dismissing…",
   "petsummon.hud.summoning": "Summoning…",
   "petsummon.summon.no_bonds": "No bonds to summon",
