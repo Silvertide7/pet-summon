@@ -12,7 +12,7 @@ public final class ClientSetup {
 
     @SubscribeEvent
     public static void onRegisterKeyMappings(RegisterKeyMappingsEvent event) {
-        event.register(Keybinds.SUMMON_PET);
+        event.register(Keybinds.SUMMON_ACTIVE_PET);
         event.register(Keybinds.OPEN_ROSTER);
     }
 

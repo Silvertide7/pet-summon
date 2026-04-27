@@ -12,6 +12,7 @@ import net.silvertide.petsummon.attachment.BondRoster;
 import net.silvertide.petsummon.network.packet.C2SBreakBond;
 import net.silvertide.petsummon.network.packet.C2SClaimEntity;
 import net.silvertide.petsummon.network.packet.C2SOpenRoster;
+import net.silvertide.petsummon.network.packet.C2SSetActivePet;
 import net.silvertide.petsummon.network.packet.C2SSummonBond;
 import net.silvertide.petsummon.network.packet.C2SSummonByKeybind;
 import net.silvertide.petsummon.network.packet.S2CRosterSync;
@@ -20,7 +21,7 @@ import net.silvertide.petsummon.server.BondManager;
 
 import java.util.Comparator;
 import java.util.List;
-import java.util.Optional;
+import java.util.UUID;
 
 public final class ServerPacketHandler {
 
@@ -42,10 +43,14 @@ public final class ServerPacketHandler {
                 player.sendSystemMessage(Component.literal("No bonds to summon."));
                 return;
             }
-            Optional<Bond> pick = roster.bonds().values().stream()
-                    .max(Comparator.comparingLong(Bond::lastSummonedAt));
-            if (pick.isEmpty()) return;
-            BondManager.SummonResult result = BondManager.summon(player, pick.get().bondId());
+            // Active pet wins; otherwise fall back to oldest-bonded.
+            UUID target = roster.activePetId().orElseGet(() ->
+                    roster.bonds().values().stream()
+                            .min(Comparator.comparingLong(Bond::bondedAt))
+                            .map(Bond::bondId)
+                            .orElseThrow()
+            );
+            BondManager.SummonResult result = BondManager.summon(player, target);
             player.sendSystemMessage(Component.literal("Summon: " + result.name()));
             if (isSummonSuccess(result)) sendRosterSync(player);
         });
@@ -93,11 +98,23 @@ public final class ServerPacketHandler {
         });
     }
 
+    public static void onSetActivePet(C2SSetActivePet payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (!(context.player() instanceof ServerPlayer player)) return;
+            BondRoster roster = player.getData(ModAttachments.BOND_ROSTER.get());
+            BondRoster updated = roster.withActive(payload.bondId());
+            if (updated != roster) {
+                player.setData(ModAttachments.BOND_ROSTER.get(), updated);
+            }
+            sendRosterSync(player);
+        });
+    }
+
     public static void sendRosterSync(ServerPlayer player) {
         BondRoster roster = player.getData(ModAttachments.BOND_ROSTER.get());
         List<BondView> views = roster.bonds().values().stream()
                 .sorted(Comparator.comparingLong(Bond::bondedAt))
-                .map(BondView::from)
+                .map(b -> BondView.from(b, roster.isActive(b.bondId())))
                 .toList();
         PacketDistributor.sendToPlayer(player, new S2CRosterSync(views));
     }

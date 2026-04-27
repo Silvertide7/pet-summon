@@ -20,7 +20,8 @@ public record BondView(
         ResourceLocation entityType,
         Optional<String> displayName,
         ResourceLocation lastSeenDim,
-        Vec3 lastSeenPos
+        Vec3 lastSeenPos,
+        boolean isActive
 ) {
     public static final StreamCodec<ByteBuf, Vec3> VEC3_STREAM_CODEC = StreamCodec.composite(
             ByteBufCodecs.DOUBLE, Vec3::x,
@@ -35,16 +36,18 @@ public record BondView(
             ByteBufCodecs.optional(ByteBufCodecs.STRING_UTF8), BondView::displayName,
             ResourceLocation.STREAM_CODEC, BondView::lastSeenDim,
             VEC3_STREAM_CODEC, BondView::lastSeenPos,
+            ByteBufCodecs.BOOL, BondView::isActive,
             BondView::new
     );
 
-    public static BondView from(Bond bond) {
+    public static BondView from(Bond bond, boolean isActive) {
         return new BondView(
                 bond.bondId(),
                 bond.entityType(),
                 bond.displayName(),
                 bond.lastSeenDim().location(),
-                bond.lastSeenPos()
+                bond.lastSeenPos(),
+                isActive
         );
     }
 }

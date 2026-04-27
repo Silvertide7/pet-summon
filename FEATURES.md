@@ -105,6 +105,18 @@ Needed once people deploy this on multiplayer.
 - **CompactMachines / dimension-bridging mods** — make sure cross-dim summon respects their dimension types.
 - **Citadel / GeckoLib pets** — verify NBT snapshot/restore preserves animation state and other extra-data slots.
 - **Mod menu / Configured** — `ModConfigSpec` already integrates; just make sure category labels are translated.
+- **Project MMO integration.** Optional soft-dep on [Project MMO](https://www.curseforge.com/minecraft/mc-mods/project-mmo). Hooks worth exposing as PMMO XP sources / requirements:
+  - Award `TAMING` (or a custom `BONDING`) XP when a bond is successfully claimed.
+  - Award smaller XP on summon (encourages active use) and on summon distance / cross-dim summon.
+  - PMMO requirement gates: minimum skill level to claim a bond, minimum level to break, minimum level for cross-dim summon, etc. Each gate is its own config-driven hook.
+  - Configurable per-entity-type XP yields via PMMO datapack JSON, in addition to defaults.
+  - Player level scales `maxBonds` (e.g. +1 slot per N levels) — opt-in config.
+  - Use PMMO's API at runtime via reflection or a soft-dep `ModList.get().isLoaded("pmmo")` check; never hard-link the API jar so we run fine without PMMO installed.
+- **Game progression gating (KubeJS Stages / Game Stages).** Soft-dep integration so modpack authors can lock the mod behind a progression flag.
+  - Config: `requiredStage: String` (default empty = no requirement). When non-empty, all bond actions (claim, summon, break, open screen) check the player has that stage. Without it, screen shows a "locked" message; keybind summon shows chat error.
+  - Reference implementation: [FTB Chunks](https://github.com/FTBTeam/FTB-Mods-Issues) gates its claim/map features by stages — read their integration code for how they query stage state cleanly across both KubeJS Stages and Game Stages mods (the two have different APIs).
+  - Like PMMO, soft-dep only; never hard-link.
+  - Could extend to per-action stage gates (e.g. `cross_dim_stage`, `claim_stage`) if modpack authors want fine-grained control, but start with one umbrella stage.
 
 ---
 

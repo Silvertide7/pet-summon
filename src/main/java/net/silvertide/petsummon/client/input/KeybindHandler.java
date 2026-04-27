@@ -15,7 +15,7 @@ public final class KeybindHandler {
 
     @SubscribeEvent
     public static void onClientTick(ClientTickEvent.Post event) {
-        while (Keybinds.SUMMON_PET.consumeClick()) {
+        while (Keybinds.SUMMON_ACTIVE_PET.consumeClick()) {
             PacketDistributor.sendToServer(new C2SSummonByKeybind());
         }
         while (Keybinds.OPEN_ROSTER.consumeClick()) {

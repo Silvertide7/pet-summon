@@ -1,6 +1,7 @@
 package net.silvertide.petsummon.server;
 
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.minecraft.commands.CommandSourceStack;
@@ -24,15 +25,17 @@ import net.silvertide.petsummon.registry.ModAttachments;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
  * Debug commands for exercising the bond system without a GUI.
  *
- *   /petsummon claim                — claim the entity at your crosshair (within 10 blocks)
- *   /petsummon list                 — list your bonds with stable indices
- *   /petsummon summon  &lt;index&gt;     — summon the bond at the given index
- *   /petsummon break   &lt;index&gt;     — break the bond at the given index
+ *   /petsummon claim                  — claim the entity at your crosshair (within 10 blocks)
+ *   /petsummon list                   — list your bonds with stable indices
+ *   /petsummon summon  &lt;index&gt;       — summon the bond at the given index
+ *   /petsummon break   &lt;index&gt;       — break the bond at the given index
+ *   /petsummon active  &lt;index|none&gt;  — set or clear the active pet
  *
  * Indices are derived from your roster sorted by bondedAt (oldest first).
  */
@@ -52,6 +55,9 @@ public final class PetSummonCommand {
                         .then(Commands.literal("break")
                                 .then(Commands.argument("index", IntegerArgumentType.integer(0))
                                         .executes(PetSummonCommand::runBreak)))
+                        .then(Commands.literal("active")
+                                .then(Commands.argument("target", StringArgumentType.word())
+                                        .executes(PetSummonCommand::runActive)))
         );
     }
 
@@ -84,8 +90,9 @@ public final class PetSummonCommand {
             String name = b.displayName().orElse("(no name)");
             String dim = b.lastSeenDim().location().toString();
             String pos = String.format("%.0f,%.0f,%.0f", b.lastSeenPos().x, b.lastSeenPos().y, b.lastSeenPos().z);
-            String line = String.format("[%d] %s %s \"%s\" rev=%d last=%s @ %s",
-                    idx, shortId(b.bondId()), b.entityType(), name, b.revision(), dim, pos);
+            String activeMarker = roster.isActive(b.bondId()) ? " [ACTIVE]" : "";
+            String line = String.format("[%d] %s %s \"%s\" rev=%d last=%s @ %s%s",
+                    idx, shortId(b.bondId()), b.entityType(), name, b.revision(), dim, pos, activeMarker);
             ctx.getSource().sendSuccess(() -> Component.literal(line), false);
         }
         return bonds.size();
@@ -117,6 +124,36 @@ public final class PetSummonCommand {
         BondManager.BreakResult result = BondManager.breakBond(player, bond.bondId());
         ctx.getSource().sendSuccess(() -> Component.literal("Break [" + index + "] " + shortId(bond.bondId()) + ": " + result.name()), false);
         return result == BondManager.BreakResult.BROKEN ? 1 : 0;
+    }
+
+    private static int runActive(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        ServerPlayer player = ctx.getSource().getPlayerOrException();
+        String target = StringArgumentType.getString(ctx, "target");
+        BondRoster roster = player.getData(ModAttachments.BOND_ROSTER.get());
+
+        Optional<UUID> next;
+        if (target.equalsIgnoreCase("none") || target.equalsIgnoreCase("clear")) {
+            next = Optional.empty();
+        } else {
+            int index;
+            try {
+                index = Integer.parseInt(target);
+            } catch (NumberFormatException ex) {
+                ctx.getSource().sendFailure(Component.literal("Expected an index or 'none', got: " + target));
+                return 0;
+            }
+            Bond bond = bondAt(player, index);
+            if (bond == null) {
+                ctx.getSource().sendFailure(Component.literal("No bond at index " + index + "."));
+                return 0;
+            }
+            next = Optional.of(bond.bondId());
+        }
+
+        BondRoster updated = roster.withActive(next);
+        player.setData(ModAttachments.BOND_ROSTER.get(), updated);
+        ctx.getSource().sendSuccess(() -> Component.literal("Active pet: " + next.map(PetSummonCommand::shortId).orElse("(none)")), false);
+        return 1;
     }
 
     private static Bond bondAt(ServerPlayer player, int index) {

@@ -21,10 +21,12 @@ import net.silvertide.petsummon.network.BondView;
 import net.silvertide.petsummon.network.packet.C2SBreakBond;
 import net.silvertide.petsummon.network.packet.C2SClaimEntity;
 import net.silvertide.petsummon.network.packet.C2SOpenRoster;
+import net.silvertide.petsummon.network.packet.C2SSetActivePet;
 import net.silvertide.petsummon.network.packet.C2SSummonBond;
 import net.silvertide.petsummon.registry.ModTags;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -60,6 +62,12 @@ public final class RosterScreen extends Screen {
     private static final int C_BTN_BREAK_CONFIRM = 0xFFD45A5A;
     private static final int C_BTN_CLAIM = 0xFF3D5C8A;
     private static final int C_BTN_CLAIM_HOVER = 0xFF5278B0;
+    private static final int C_STAR_ACTIVE = 0xFFE7B43B;
+    private static final int C_STAR_INACTIVE = 0xFF4A5260;
+    private static final int C_STAR_HOVER = 0xFF8A95A8;
+
+    private static final int STAR_HIT_SIZE = 12;
+    private static final int STAR_COL_W = 16;
 
     private int leftPos;
     private int topPos;
@@ -73,6 +81,12 @@ public final class RosterScreen extends Screen {
 
     private UUID breakArmedBondId = null;
     private long breakArmedExpiresAt = 0L;
+
+    /** Snapshotted at {@link #init()} only — never updated while the screen is open.
+     *  The bind footer is locked to whatever was in the player's crosshair at open time.
+     *  Server enforces distance on the actual bind packet, so if the pet wandered off
+     *  the click fails with chat feedback. */
+    private Entity initialCandidate;
 
     public RosterScreen() {
         super(Component.translatable("petsummon.screen.title"));
@@ -90,6 +104,15 @@ public final class RosterScreen extends Screen {
         claimBtnW = PANEL_WIDTH - 2 * ROW_PAD - 8;
         claimBtnX = leftPos + ROW_PAD + 4;
         claimBtnY = topPos + panelHeight - FOOTER_H + (FOOTER_H - CLAIM_BTN_H) / 2;
+
+        // Lock in the bind candidate at open time. No re-raycast while the screen is open.
+        LocalPlayer p = Minecraft.getInstance().player;
+        if (p != null) {
+            Entity hit = raycastEntity(p);
+            if (hit != null && passesClientGates(hit)) {
+                initialCandidate = hit;
+            }
+        }
 
         PacketDistributor.sendToServer(new C2SOpenRoster());
     }
@@ -138,26 +161,26 @@ public final class RosterScreen extends Screen {
     }
 
     /**
-     * Raycast from the local player. Returns an entity that *might* be claimable —
-     * the server's {@link net.silvertide.petsummon.server.BondManager#tryClaim} runs
-     * the authoritative gate when the player clicks Bind.
+     * Returns the candidate snapshotted at {@link #init()}, or null if the snapshot is
+     * gone (entity removed). The snapshot is fixed for the lifetime of this screen
+     * instance — looking at a different pet does not switch it. Server enforces
+     * distance and the rest of the gates on the actual bind packet.
      *
-     * Why we don't check owner-match here: {@link AbstractHorse} doesn't sync its
-     * owner UUID via SynchedEntityData (only the tamed flag is synced), so on the
-     * client {@code getOwnerUUID()} is null for every horse regardless of who tamed
-     * it. {@link net.minecraft.world.entity.TamableAnimal} (wolves, cats, parrots)
-     * does sync owner UUID, but to keep the gate consistent we let the server make
-     * the call. The user-visible cost: looking at a wild horse will show the Bind
-     * button; clicking it gets a "Bind failed: NOT_OWNED_BY_PLAYER" chat message.
-     *
-     * Already-bonded check is also skipped here for the same reason — Bonded
-     * attachment isn't synced. Server catches it on the claim packet.
+     * Why we don't check owner-match: {@link AbstractHorse} doesn't sync its owner
+     * UUID via SynchedEntityData (only the tamed flag is synced), so on the client
+     * {@code getOwnerUUID()} is null for every horse regardless of who tamed it.
+     * {@link net.minecraft.world.entity.TamableAnimal} (wolves, cats, parrots) does
+     * sync owner UUID, but to keep the gate consistent we let the server make the call.
+     * Same reason for skipping already-bonded — Bonded attachment isn't synced.
      */
     private Entity findClaimCandidate() {
-        Minecraft mc = Minecraft.getInstance();
-        LocalPlayer p = mc.player;
-        if (p == null || mc.level == null) return null;
+        if (initialCandidate != null && initialCandidate.isRemoved()) {
+            initialCandidate = null;
+        }
+        return initialCandidate;
+    }
 
+    private Entity raycastEntity(LocalPlayer p) {
         Vec3 eye = p.getEyePosition();
         Vec3 look = p.getViewVector(1.0F);
         Vec3 reach = eye.add(look.scale(CLAIM_RAYCAST_DISTANCE));
@@ -166,15 +189,15 @@ public final class RosterScreen extends Screen {
                 p, eye, reach, box,
                 e -> !e.isSpectator() && e.isPickable(),
                 CLAIM_RAYCAST_DISTANCE * CLAIM_RAYCAST_DISTANCE);
-        if (hit == null) return null;
-        Entity e = hit.getEntity();
+        return hit != null ? hit.getEntity() : null;
+    }
 
-        if (!(e instanceof OwnableEntity)) return null;
-        if (BuiltInRegistries.ENTITY_TYPE.wrapAsHolder(e.getType()).is(ModTags.BOND_BLOCKLIST)) return null;
-        if (Config.REQUIRE_SADDLEABLE.get() && !(e instanceof Saddleable)) return null;
-        if (ClientRosterData.bonds().size() >= Config.MAX_BONDS.get()) return null;
-
-        return e;
+    private boolean passesClientGates(Entity e) {
+        if (!(e instanceof OwnableEntity)) return false;
+        if (BuiltInRegistries.ENTITY_TYPE.wrapAsHolder(e.getType()).is(ModTags.BOND_BLOCKLIST)) return false;
+        if (Config.REQUIRE_SADDLEABLE.get() && !(e instanceof Saddleable)) return false;
+        if (ClientRosterData.bonds().size() >= Config.MAX_BONDS.get()) return false;
+        return true;
     }
 
     private void renderRow(GuiGraphics g, BondView bond, int x, int y, int w, int mx, int my) {
@@ -182,11 +205,26 @@ public final class RosterScreen extends Screen {
         boolean rowHover = mx >= x && mx < x + w && my >= y && my < y + rowH;
         g.fill(x, y, x + w, y + rowH, rowHover ? C_ROW_HOVER : C_ROW_BG);
 
+        // Star column (active-pet toggle)
+        int starCx = x + STAR_COL_W / 2;
+        int starCy = y + rowH / 2;
+        boolean starHover = inBox(mx, my, starCx - STAR_HIT_SIZE / 2, starCy - STAR_HIT_SIZE / 2,
+                STAR_HIT_SIZE, STAR_HIT_SIZE);
+        int starColor;
+        if (bond.isActive()) {
+            starColor = C_STAR_ACTIVE;
+        } else {
+            starColor = starHover ? C_STAR_HOVER : C_STAR_INACTIVE;
+        }
+        drawStar(g, starCx, starCy, starColor);
+
+        // Name + subline (shifted right to clear the star column)
+        int textX = x + STAR_COL_W + 4;
         String name = bond.displayName().orElse(bond.entityType().getPath());
-        g.drawString(font, name, x + 6, y + 5, C_TEXT);
+        g.drawString(font, name, textX, y + 5, C_TEXT);
 
         String sub = bond.entityType() + " · " + bond.lastSeenDim().getPath();
-        g.drawString(font, sub, x + 6, y + 16, C_TEXT_MUTED);
+        g.drawString(font, sub, textX, y + 16, C_TEXT_MUTED);
 
         int btnH = rowH - 8;
         int btnY = y + 4;
@@ -213,6 +251,15 @@ public final class RosterScreen extends Screen {
         drawButton(g, breakX, btnY, breakW, btnH, breakLabel, breakColor);
     }
 
+    /** 5x5 procedural diamond ("star" stand-in), centered at (cx, cy). */
+    private static void drawStar(GuiGraphics g, int cx, int cy, int color) {
+        g.fill(cx,     cy - 2, cx + 1, cy - 1, color); // top: 1px
+        g.fill(cx - 1, cy - 1, cx + 2, cy,     color); // 3px
+        g.fill(cx - 2, cy,     cx + 3, cy + 1, color); // middle: 5px
+        g.fill(cx - 1, cy + 1, cx + 2, cy + 2, color); // 3px
+        g.fill(cx,     cy + 2, cx + 1, cy + 3, color); // bottom: 1px
+    }
+
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (button != 0) return super.mouseClicked(mouseX, mouseY, button);
@@ -236,6 +283,7 @@ public final class RosterScreen extends Screen {
 
             int x = leftPos + ROW_PAD;
             int w = PANEL_WIDTH - 2 * ROW_PAD;
+            int rowH = ROW_HEIGHT - 2;
             int btnH = ROW_HEIGHT - 10;
             int btnY = rowY + 4;
             int summonW = 60;
@@ -246,6 +294,16 @@ public final class RosterScreen extends Screen {
             BondView bond = bonds.get(i);
             int mx = (int) mouseX;
             int my = (int) mouseY;
+
+            // Star toggle
+            int starCx = x + STAR_COL_W / 2;
+            int starCy = rowY + rowH / 2;
+            if (inBox(mx, my, starCx - STAR_HIT_SIZE / 2, starCy - STAR_HIT_SIZE / 2,
+                    STAR_HIT_SIZE, STAR_HIT_SIZE)) {
+                Optional<UUID> next = bond.isActive() ? Optional.empty() : Optional.of(bond.bondId());
+                PacketDistributor.sendToServer(new C2SSetActivePet(next));
+                return true;
+            }
 
             if (inBox(mx, my, summonX, btnY, summonW, btnH)) {
                 PacketDistributor.sendToServer(new C2SSummonBond(bond.bondId()));

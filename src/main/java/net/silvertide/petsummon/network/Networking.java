@@ -9,6 +9,7 @@ import net.silvertide.petsummon.client.network.ClientPacketHandler;
 import net.silvertide.petsummon.network.packet.C2SBreakBond;
 import net.silvertide.petsummon.network.packet.C2SClaimEntity;
 import net.silvertide.petsummon.network.packet.C2SOpenRoster;
+import net.silvertide.petsummon.network.packet.C2SSetActivePet;
 import net.silvertide.petsummon.network.packet.C2SSummonBond;
 import net.silvertide.petsummon.network.packet.C2SSummonByKeybind;
 import net.silvertide.petsummon.network.packet.S2CRosterSync;
@@ -25,6 +26,7 @@ public final class Networking {
         registrar.playToServer(C2SSummonBond.TYPE, C2SSummonBond.STREAM_CODEC, ServerPacketHandler::onSummonBond);
         registrar.playToServer(C2SBreakBond.TYPE, C2SBreakBond.STREAM_CODEC, ServerPacketHandler::onBreakBond);
         registrar.playToServer(C2SClaimEntity.TYPE, C2SClaimEntity.STREAM_CODEC, ServerPacketHandler::onClaimEntity);
+        registrar.playToServer(C2SSetActivePet.TYPE, C2SSetActivePet.STREAM_CODEC, ServerPacketHandler::onSetActivePet);
 
         registrar.playToClient(S2CRosterSync.TYPE, S2CRosterSync.STREAM_CODEC, ClientPacketHandler::onRosterSync);
     }
