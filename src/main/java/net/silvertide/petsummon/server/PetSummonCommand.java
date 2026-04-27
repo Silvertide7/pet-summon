@@ -34,6 +34,7 @@ import java.util.UUID;
  *   /petsummon claim                  — claim the entity at your crosshair (within 10 blocks)
  *   /petsummon list                   — list your bonds with stable indices
  *   /petsummon summon  &lt;index&gt;       — summon the bond at the given index
+ *   /petsummon dismiss &lt;index&gt;       — recall a loaded bond back to storage
  *   /petsummon break   &lt;index&gt;       — break the bond at the given index
  *   /petsummon active  &lt;index|none&gt;  — set or clear the active pet
  *
@@ -55,6 +56,9 @@ public final class PetSummonCommand {
                         .then(Commands.literal("break")
                                 .then(Commands.argument("index", IntegerArgumentType.integer(0))
                                         .executes(PetSummonCommand::runBreak)))
+                        .then(Commands.literal("dismiss")
+                                .then(Commands.argument("index", IntegerArgumentType.integer(0))
+                                        .executes(PetSummonCommand::runDismiss)))
                         .then(Commands.literal("active")
                                 .then(Commands.argument("target", StringArgumentType.word())
                                         .executes(PetSummonCommand::runActive)))
@@ -124,6 +128,19 @@ public final class PetSummonCommand {
         BondManager.BreakResult result = BondManager.breakBond(player, bond.bondId());
         ctx.getSource().sendSuccess(() -> Component.literal("Break [" + index + "] " + shortId(bond.bondId()) + ": " + result.name()), false);
         return result == BondManager.BreakResult.BROKEN ? 1 : 0;
+    }
+
+    private static int runDismiss(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        ServerPlayer player = ctx.getSource().getPlayerOrException();
+        int index = IntegerArgumentType.getInteger(ctx, "index");
+        Bond bond = bondAt(player, index);
+        if (bond == null) {
+            ctx.getSource().sendFailure(Component.literal("No bond at index " + index + "."));
+            return 0;
+        }
+        BondManager.DismissResult result = BondManager.dismiss(player, bond.bondId());
+        ctx.getSource().sendSuccess(() -> Component.literal("Dismiss [" + index + "] " + shortId(bond.bondId()) + ": " + result.name()), false);
+        return result == BondManager.DismissResult.DISMISSED ? 1 : 0;
     }
 
     private static int runActive(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {

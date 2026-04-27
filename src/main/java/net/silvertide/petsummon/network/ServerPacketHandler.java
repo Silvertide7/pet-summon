@@ -11,6 +11,7 @@ import net.silvertide.petsummon.attachment.Bond;
 import net.silvertide.petsummon.attachment.BondRoster;
 import net.silvertide.petsummon.network.packet.C2SBreakBond;
 import net.silvertide.petsummon.network.packet.C2SClaimEntity;
+import net.silvertide.petsummon.network.packet.C2SDismissBond;
 import net.silvertide.petsummon.network.packet.C2SOpenRoster;
 import net.silvertide.petsummon.network.packet.C2SSetActivePet;
 import net.silvertide.petsummon.network.packet.C2SSummonBond;
@@ -71,6 +72,15 @@ public final class ServerPacketHandler {
             BondManager.BreakResult result = BondManager.breakBond(player, payload.bondId());
             player.sendSystemMessage(Component.literal("Break: " + result.name()));
             sendRosterSync(player);
+        });
+    }
+
+    public static void onDismissBond(C2SDismissBond payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (!(context.player() instanceof ServerPlayer player)) return;
+            BondManager.DismissResult result = BondManager.dismiss(player, payload.bondId());
+            player.sendSystemMessage(Component.literal("Dismiss: " + result.name()));
+            if (result == BondManager.DismissResult.DISMISSED) sendRosterSync(player);
         });
     }
 

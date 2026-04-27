@@ -20,6 +20,7 @@ import net.silvertide.petsummon.config.Config;
 import net.silvertide.petsummon.network.BondView;
 import net.silvertide.petsummon.network.packet.C2SBreakBond;
 import net.silvertide.petsummon.network.packet.C2SClaimEntity;
+import net.silvertide.petsummon.network.packet.C2SDismissBond;
 import net.silvertide.petsummon.network.packet.C2SOpenRoster;
 import net.silvertide.petsummon.network.packet.C2SSetActivePet;
 import net.silvertide.petsummon.network.packet.C2SSummonBond;
@@ -60,6 +61,8 @@ public final class RosterScreen extends Screen {
     private static final int C_BTN_BREAK = 0xFF7A3A3A;
     private static final int C_BTN_BREAK_HOVER = 0xFF994A4A;
     private static final int C_BTN_BREAK_CONFIRM = 0xFFD45A5A;
+    private static final int C_BTN_DISMISS = 0xFF6A5A3A;
+    private static final int C_BTN_DISMISS_HOVER = 0xFF8A7A52;
     private static final int C_BTN_CLAIM = 0xFF3D5C8A;
     private static final int C_BTN_CLAIM_HOVER = 0xFF5278B0;
     private static final int C_STAR_ACTIVE = 0xFFE7B43B;
@@ -228,12 +231,15 @@ public final class RosterScreen extends Screen {
 
         int btnH = rowH - 8;
         int btnY = y + 4;
-        int summonW = 60;
-        int breakW = 50;
+        int summonW = 50;
+        int dismissW = 50;
+        int breakW = 45;
         int breakX = x + w - breakW - 4;
-        int summonX = breakX - summonW - 4;
+        int dismissX = breakX - dismissW - 4;
+        int summonX = dismissX - summonW - 4;
 
         boolean summonHover = inBox(mx, my, summonX, btnY, summonW, btnH);
+        boolean dismissHover = inBox(mx, my, dismissX, btnY, dismissW, btnH);
         boolean breakHover = inBox(mx, my, breakX, btnY, breakW, btnH);
         boolean armed = bond.bondId().equals(breakArmedBondId)
                 && System.currentTimeMillis() < breakArmedExpiresAt;
@@ -241,6 +247,10 @@ public final class RosterScreen extends Screen {
         drawButton(g, summonX, btnY, summonW, btnH,
                 Component.translatable("petsummon.screen.summon"),
                 summonHover ? C_BTN_SUMMON_HOVER : C_BTN_SUMMON);
+
+        drawButton(g, dismissX, btnY, dismissW, btnH,
+                Component.translatable("petsummon.screen.dismiss"),
+                dismissHover ? C_BTN_DISMISS_HOVER : C_BTN_DISMISS);
 
         Component breakLabel = armed
                 ? Component.translatable("petsummon.screen.break_confirm")
@@ -286,10 +296,12 @@ public final class RosterScreen extends Screen {
             int rowH = ROW_HEIGHT - 2;
             int btnH = ROW_HEIGHT - 10;
             int btnY = rowY + 4;
-            int summonW = 60;
-            int breakW = 50;
+            int summonW = 50;
+            int dismissW = 50;
+            int breakW = 45;
             int breakX = x + w - breakW - 4;
-            int summonX = breakX - summonW - 4;
+            int dismissX = breakX - dismissW - 4;
+            int summonX = dismissX - summonW - 4;
 
             BondView bond = bonds.get(i);
             int mx = (int) mouseX;
@@ -307,6 +319,10 @@ public final class RosterScreen extends Screen {
 
             if (inBox(mx, my, summonX, btnY, summonW, btnH)) {
                 PacketDistributor.sendToServer(new C2SSummonBond(bond.bondId()));
+                return true;
+            }
+            if (inBox(mx, my, dismissX, btnY, dismissW, btnH)) {
+                PacketDistributor.sendToServer(new C2SDismissBond(bond.bondId()));
                 return true;
             }
             if (inBox(mx, my, breakX, btnY, breakW, btnH)) {

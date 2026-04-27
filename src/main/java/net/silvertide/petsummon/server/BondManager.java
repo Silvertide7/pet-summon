@@ -1,18 +1,22 @@
 package net.silvertide.petsummon.server;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.OwnableEntity;
 import net.minecraft.world.entity.Saddleable;
+import net.minecraft.world.entity.TamableAnimal;
 import net.minecraft.world.level.Level;
 import net.silvertide.petsummon.PetSummon;
 import net.silvertide.petsummon.attachment.Bond;
@@ -47,6 +51,12 @@ public final class BondManager {
     public enum BreakResult {
         BROKEN,
         NO_SUCH_BOND
+    }
+
+    public enum DismissResult {
+        DISMISSED,
+        NO_SUCH_BOND,
+        NOT_LOADED
     }
 
     public enum SummonResult {
@@ -129,6 +139,45 @@ public final class BondManager {
         return BreakResult.BROKEN;
     }
 
+    /**
+     * Recall a loaded bonded entity back to bond storage. Snapshots the entity's
+     * current state (via the leave-event handler that fires from {@code discard()}),
+     * ejects passengers and stops riding, plays a "poof" effect, then discards.
+     *
+     * HP is preserved as-is — dismissing a low-HP pet means it returns at low HP.
+     * No free heal. Same exploit shape as cross-dim summon's existing rescue path,
+     * accepted as a feature.
+     */
+    public static DismissResult dismiss(ServerPlayer player, UUID bondId) {
+        BondRoster roster = player.getData(ModAttachments.BOND_ROSTER.get());
+        if (roster.get(bondId).isEmpty()) return DismissResult.NO_SUCH_BOND;
+
+        Optional<Entity> existing = BondIndex.get().find(bondId);
+        if (existing.isEmpty()) return DismissResult.NOT_LOADED;
+        Entity entity = existing.get();
+
+        // Eject any passengers (player riding the pet, etc.) and break out of any vehicle.
+        entity.ejectPassengers();
+        if (entity.isPassenger()) entity.stopRiding();
+
+        ServerLevel entityLevel = (ServerLevel) entity.level();
+        double cx = entity.getX();
+        double cy = entity.getY() + entity.getBbHeight() / 2.0D;
+        double cz = entity.getZ();
+
+        entityLevel.sendParticles(ParticleTypes.POOF, cx, cy, cz,
+                20, 0.3D, 0.3D, 0.3D, 0.05D);
+        entityLevel.playSound(null, cx, cy, cz,
+                SoundEvents.ENDERMAN_TELEPORT, SoundSource.NEUTRAL, 0.6F, 1.2F);
+
+        // discard() synchronously fires EntityLeaveLevelEvent, which our handler uses
+        // to snapshot the bond and untrack from BondIndex. No need to repeat that here.
+        entity.discard();
+
+        PetSummon.LOGGER.info("[petsummon] {} dismissed bond {}", player.getGameProfile().getName(), bondId);
+        return DismissResult.DISMISSED;
+    }
+
     public static SummonResult summon(ServerPlayer player, UUID bondId) {
         BondRoster roster = player.getData(ModAttachments.BOND_ROSTER.get());
         Optional<Bond> maybeBond = roster.get(bondId);
@@ -157,6 +206,7 @@ public final class BondManager {
                 double walkRange = Config.WALK_RANGE.get();
 
                 if (distSq <= walkRange * walkRange && old instanceof Mob mob) {
+                    wake(old);
                     mob.getNavigation().moveTo(player.getX(), player.getY(), player.getZ(), Config.WALK_SPEED.get());
                     writeSummonTimestamp(player, bond, roster);
                     return SummonResult.WALKING;
@@ -202,6 +252,10 @@ public final class BondManager {
             living.setHealth(living.getMaxHealth());
         }
 
+        // If the snapshot captured a sitting wolf/cat/etc., stand them up — the player
+        // just summoned them, they're not supposed to plop into a sit pose on arrival.
+        wake(entity);
+
         entity.setPos(player.getX(), player.getY(), player.getZ());
 
         int newRevision = saved.incrementRevision(bond.bondId());
@@ -219,6 +273,19 @@ public final class BondManager {
         player.setData(ModAttachments.BOND_ROSTER.get(), currentRoster.with(updated));
 
         return SummonResult.SUMMONED_FRESH;
+    }
+
+    /**
+     * Clear sitting state on TamableAnimal (wolf, cat, parrot). A sitting tame's AI
+     * blocks pathfinding while position updates still happen, producing the "boot-scoot"
+     * slide when summoned. AbstractHorse doesn't have sitting, so this is a no-op for
+     * horse-likes. Run before navigation.moveTo and after entity.load(snapshot).
+     */
+    private static void wake(Entity entity) {
+        if (entity instanceof TamableAnimal tame) {
+            tame.setOrderedToSit(false);
+            tame.setInSittingPose(false);
+        }
     }
 
     private static void writeSummonTimestamp(ServerPlayer player, Bond bond, BondRoster roster) {

@@ -5,6 +5,7 @@
   "petsummon.screen.title": "Pet Roster",
   "petsummon.screen.empty": "No bonds yet.",
   "petsummon.screen.summon": "Summon",
+  "petsummon.screen.dismiss": "Dismiss",
   "petsummon.screen.break": "Break",
   "petsummon.screen.break_confirm": "Sure?",
   "petsummon.screen.bind": "Bind this %s",
