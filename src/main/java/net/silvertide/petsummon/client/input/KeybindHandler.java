@@ -69,6 +69,10 @@ public final class KeybindHandler {
                 showActionBar("petsummon.summon.no_active");
                 continue;
             }
+            if (ClientRosterData.isGlobalSummonOnCooldown()) {
+                showActionBar("petsummon.summon.global_cooldown");
+                continue;
+            }
             if (ClientRosterData.isOnCooldown(target.get())) {
                 showActionBar("petsummon.summon.on_cooldown");
                 continue;

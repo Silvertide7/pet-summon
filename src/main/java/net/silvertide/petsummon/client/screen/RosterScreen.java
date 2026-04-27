@@ -64,6 +64,7 @@ public final class RosterScreen extends Screen {
     private static final int C_TEXT_MUTED = 0xFF8FA0B0;
     private static final int C_BTN_SUMMON = 0xFF3A7F5A;
     private static final int C_BTN_SUMMON_HOVER = 0xFF4FA374;
+    private static final int C_BTN_SUMMON_DISABLED = 0xFF3F4F45;
     private static final int C_BTN_BREAK = 0xFF7A3A3A;
     private static final int C_BTN_BREAK_HOVER = 0xFF994A4A;
     private static final int C_BTN_BREAK_CONFIRM = 0xFFD45A5A;
@@ -177,6 +178,14 @@ public final class RosterScreen extends Screen {
         drawBorder(g, leftPos, topPos, PANEL_WIDTH, panelHeight, C_BORDER);
 
         g.drawCenteredString(font, getTitle(), leftPos + PANEL_WIDTH / 2, topPos + 8, C_TEXT);
+
+        // Global cooldown indicator (only when active). Right-aligned in title bar.
+        if (ClientRosterData.isGlobalSummonOnCooldown()) {
+            long remainingMs = ClientRosterData.globalCooldownRemainingMsNow();
+            String text = String.format("Cooldown: %.1fs", remainingMs / 1000.0F);
+            int tw = font.width(text);
+            g.drawString(font, text, leftPos + PANEL_WIDTH - 6 - tw, topPos + 8, C_TEXT_MUTED);
+        }
 
         // Vertical separator between rows column and preview pane
         g.fill(separatorX, rowsTop, separatorX + 1, rowsBottom, C_SEPARATOR);
@@ -404,7 +413,10 @@ public final class RosterScreen extends Screen {
 
         boolean armed = bond.bondId().equals(breakArmedBondId)
                 && System.currentTimeMillis() < breakArmedExpiresAt;
-        boolean summonHover = inBox(mx, my, summonX, btnY, summonW, btnH);
+
+        boolean summonDisabled = ClientRosterData.isGlobalSummonOnCooldown()
+                || ClientRosterData.isOnCooldown(bond);
+        boolean summonHover = !summonDisabled && inBox(mx, my, summonX, btnY, summonW, btnH);
 
         // Hold progress (if this row is currently being held for one of these buttons).
         float summonHoldProgress = 0F;
@@ -415,9 +427,12 @@ public final class RosterScreen extends Screen {
             else dismissHoldProgress = p;
         }
 
+        int summonColor = summonDisabled
+                ? C_BTN_SUMMON_DISABLED
+                : (summonHover ? C_BTN_SUMMON_HOVER : C_BTN_SUMMON);
         drawButton(g, summonX, btnY, summonW, btnH,
                 Component.translatable("petsummon.screen.summon"),
-                summonHover ? C_BTN_SUMMON_HOVER : C_BTN_SUMMON,
+                summonColor,
                 summonHoldProgress);
 
         if (armed) {
@@ -507,6 +522,18 @@ public final class RosterScreen extends Screen {
             if (mx < x || mx >= x + ROW_W) continue;
 
             if (inBox(mx, my, summonX, btnY, summonW, btnH)) {
+                // Pre-check cooldowns to avoid wasting a full hold for a guaranteed rejection.
+                LocalPlayer p = Minecraft.getInstance().player;
+                if (ClientRosterData.isGlobalSummonOnCooldown()) {
+                    if (p != null) p.displayClientMessage(
+                            Component.translatable("petsummon.summon.global_cooldown"), true);
+                    return true;
+                }
+                if (ClientRosterData.isOnCooldown(bond)) {
+                    if (p != null) p.displayClientMessage(
+                            Component.translatable("petsummon.summon.on_cooldown"), true);
+                    return true;
+                }
                 // Hold-to-confirm. Mirror the keybind contract so screen clicks can't bypass.
                 rowHold = new RowHold(bond.bondId(), RowHoldAction.SUMMON,
                         System.currentTimeMillis(), Config.HOLD_TO_SUMMON_MS.get());

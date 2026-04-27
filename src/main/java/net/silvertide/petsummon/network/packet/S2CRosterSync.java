@@ -10,12 +10,17 @@ import net.silvertide.petsummon.network.BondView;
 
 import java.util.List;
 
-public record S2CRosterSync(List<BondView> bonds) implements CustomPacketPayload {
+/**
+ * Full roster snapshot. {@code globalCooldownRemainingMs} is the player's roster-wide
+ * summon cooldown remaining at send time; the client measures elapsed since receive.
+ */
+public record S2CRosterSync(List<BondView> bonds, long globalCooldownRemainingMs) implements CustomPacketPayload {
     public static final Type<S2CRosterSync> TYPE = new Type<>(
             ResourceLocation.fromNamespaceAndPath(PetSummon.MODID, "s2c_roster_sync"));
 
     public static final StreamCodec<ByteBuf, S2CRosterSync> STREAM_CODEC = StreamCodec.composite(
             BondView.STREAM_CODEC.apply(ByteBufCodecs.list()), S2CRosterSync::bonds,
+            ByteBufCodecs.VAR_LONG, S2CRosterSync::globalCooldownRemainingMs,
             S2CRosterSync::new
     );
 

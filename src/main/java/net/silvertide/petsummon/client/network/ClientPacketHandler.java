@@ -11,7 +11,7 @@ import net.silvertide.petsummon.network.packet.S2CRosterSync;
 
 public final class ClientPacketHandler {
     public static void onRosterSync(S2CRosterSync payload, IPayloadContext context) {
-        context.enqueueWork(() -> ClientRosterData.update(payload.bonds()));
+        context.enqueueWork(() -> ClientRosterData.update(payload.bonds(), payload.globalCooldownRemainingMs()));
     }
 
     public static void onCancelHold(S2CCancelHold payload, IPayloadContext context) {

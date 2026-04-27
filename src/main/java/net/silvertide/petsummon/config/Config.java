@@ -25,6 +25,11 @@ public final class Config {
             .comment("Cooldown between summons of the same bond, in ticks (20 = 1 second).")
             .defineInRange("summonCooldownTicks", 100, 0, 72000);
 
+    public static final ModConfigSpec.LongValue SUMMON_GLOBAL_COOLDOWN_MS = BUILDER
+            .comment("Per-player cooldown (in ms) between any two summons regardless of which bond. " +
+                     "0 disables. Distinct from summonCooldownTicks which only blocks summoning the same pet repeatedly.")
+            .defineInRange("summonGlobalCooldownMs", 10_000L, 0L, Long.MAX_VALUE);
+
     public static final ModConfigSpec.BooleanValue CROSS_DIM_ALLOWED = BUILDER
             .comment("Allow summoning a pet from another dimension.")
             .define("crossDimAllowed", true);

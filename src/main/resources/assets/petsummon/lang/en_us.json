@@ -18,5 +18,6 @@
   "petsummon.hud.summoning": "Summoning…",
   "petsummon.summon.no_bonds": "No bonds to summon",
   "petsummon.summon.no_active": "No active pet set",
-  "petsummon.summon.on_cooldown": "Summon on cooldown"
+  "petsummon.summon.on_cooldown": "Summon on cooldown",
+  "petsummon.summon.global_cooldown": "Recently summoned, wait…"
 }

@@ -72,6 +72,7 @@ public final class BondManager {
         SUMMONED_FRESH,
         NO_SUCH_BOND,
         ON_COOLDOWN,
+        GLOBAL_COOLDOWN,
         NO_SPACE,
         PLAYER_AIRBORNE,
         CROSS_DIM_BLOCKED,
@@ -202,6 +203,12 @@ public final class BondManager {
         long cooldownMs = Config.SUMMON_COOLDOWN_TICKS.get() * 50L;
         if (now - bond.lastSummonedAt() < cooldownMs) return SummonResult.ON_COOLDOWN;
 
+        // Roster-wide spam cooldown.
+        long globalCooldownMs = Config.SUMMON_GLOBAL_COOLDOWN_MS.get();
+        if (GlobalSummonCooldownTracker.get().remainingMs(player.getUUID(), globalCooldownMs) > 0L) {
+            return SummonResult.GLOBAL_COOLDOWN;
+        }
+
         // Airborne players can't summon — pet would either fall or path to an unreachable
         // target. Applies to all summon paths (walk and materialize).
         if (Config.REQUIRE_SPACE.get() && !isPlayerGrounded(player)) return SummonResult.PLAYER_AIRBORNE;
@@ -226,6 +233,7 @@ public final class BondManager {
                     mob.getNavigation().moveTo(player.getX(), player.getY(), player.getZ(), Config.WALK_SPEED.get());
                     playSummonFx(playerLevel, player.getX(), player.getY(), player.getZ(), false);
                     writeSummonTimestamp(player, bond, roster);
+                    GlobalSummonCooldownTracker.get().recordSummon(player.getUUID());
                     return SummonResult.WALKING;
                 }
                 // Same dim but far. Entity.teleportTo doesn't reliably re-register the
@@ -300,6 +308,8 @@ public final class BondManager {
         BondRoster currentRoster = player.getData(ModAttachments.BOND_ROSTER.get());
         Bond updated = bond.withRevision(newRevision).withLastSummonedAt(System.currentTimeMillis());
         player.setData(ModAttachments.BOND_ROSTER.get(), currentRoster.with(updated));
+
+        GlobalSummonCooldownTracker.get().recordSummon(player.getUUID());
 
         return SummonResult.SUMMONED_FRESH;
     }

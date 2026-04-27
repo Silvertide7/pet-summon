@@ -20,6 +20,7 @@ import net.silvertide.petsummon.network.packet.C2SSummonByKeybind;
 import net.silvertide.petsummon.network.packet.S2CRosterSync;
 import net.silvertide.petsummon.registry.ModAttachments;
 import net.silvertide.petsummon.server.BondManager;
+import net.silvertide.petsummon.server.GlobalSummonCooldownTracker;
 
 import java.util.Comparator;
 import java.util.List;
@@ -133,7 +134,9 @@ public final class ServerPacketHandler {
                     return BondView.from(b, roster.isActive(b.bondId()), remaining);
                 })
                 .toList();
-        PacketDistributor.sendToPlayer(player, new S2CRosterSync(views));
+        long globalRemaining = GlobalSummonCooldownTracker.get()
+                .remainingMs(player.getUUID(), Config.SUMMON_GLOBAL_COOLDOWN_MS.get());
+        PacketDistributor.sendToPlayer(player, new S2CRosterSync(views, globalRemaining));
     }
 
     private static boolean isSummonSuccess(BondManager.SummonResult result) {
