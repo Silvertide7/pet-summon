@@ -1,12 +1,16 @@
 package net.silvertide.petsummon.network;
 
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import net.silvertide.petsummon.attachment.Bond;
 import net.silvertide.petsummon.attachment.BondRoster;
 import net.silvertide.petsummon.network.packet.C2SBreakBond;
+import net.silvertide.petsummon.network.packet.C2SClaimEntity;
 import net.silvertide.petsummon.network.packet.C2SOpenRoster;
 import net.silvertide.petsummon.network.packet.C2SSummonBond;
 import net.silvertide.petsummon.network.packet.C2SSummonByKeybind;
@@ -19,6 +23,9 @@ import java.util.List;
 import java.util.Optional;
 
 public final class ServerPacketHandler {
+
+    /** Server-side guard against spoofed claim packets. Client raycast caps at 8. */
+    private static final double MAX_CLAIM_DISTANCE_SQ = 12.0D * 12.0D;
 
     public static void onOpenRoster(C2SOpenRoster payload, IPayloadContext context) {
         context.enqueueWork(() -> {
@@ -35,8 +42,6 @@ public final class ServerPacketHandler {
                 player.sendSystemMessage(Component.literal("No bonds to summon."));
                 return;
             }
-            // Pick most-recently-summoned. Ties (e.g. all 0) resolve to whichever
-            // the stream picks; acceptable for a "summon last used" hotkey.
             Optional<Bond> pick = roster.bonds().values().stream()
                     .max(Comparator.comparingLong(Bond::lastSummonedAt));
             if (pick.isEmpty()) return;
@@ -61,6 +66,30 @@ public final class ServerPacketHandler {
             BondManager.BreakResult result = BondManager.breakBond(player, payload.bondId());
             player.sendSystemMessage(Component.literal("Break: " + result.name()));
             sendRosterSync(player);
+        });
+    }
+
+    public static void onClaimEntity(C2SClaimEntity payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (!(context.player() instanceof ServerPlayer player)) return;
+            ServerLevel level = (ServerLevel) player.level();
+            Entity target = level.getEntity(payload.entityUUID());
+            if (target == null) {
+                player.sendSystemMessage(Component.literal("Bind failed: entity not found."));
+                return;
+            }
+            if (target.distanceToSqr(player) > MAX_CLAIM_DISTANCE_SQ) {
+                player.sendSystemMessage(Component.literal("Bind failed: too far."));
+                return;
+            }
+            BondManager.ClaimResult result = BondManager.tryClaim(player, target);
+            if (result == BondManager.ClaimResult.CLAIMED) {
+                String typeId = BuiltInRegistries.ENTITY_TYPE.getKey(target.getType()).toString();
+                player.sendSystemMessage(Component.literal("Claimed " + typeId + "."));
+                sendRosterSync(player);
+            } else {
+                player.sendSystemMessage(Component.literal("Bind failed: " + result.name()));
+            }
         });
     }
 

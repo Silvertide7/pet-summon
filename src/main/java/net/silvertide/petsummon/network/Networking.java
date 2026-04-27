@@ -7,6 +7,7 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import net.silvertide.petsummon.PetSummon;
 import net.silvertide.petsummon.client.network.ClientPacketHandler;
 import net.silvertide.petsummon.network.packet.C2SBreakBond;
+import net.silvertide.petsummon.network.packet.C2SClaimEntity;
 import net.silvertide.petsummon.network.packet.C2SOpenRoster;
 import net.silvertide.petsummon.network.packet.C2SSummonBond;
 import net.silvertide.petsummon.network.packet.C2SSummonByKeybind;
@@ -23,6 +24,7 @@ public final class Networking {
         registrar.playToServer(C2SSummonByKeybind.TYPE, C2SSummonByKeybind.STREAM_CODEC, ServerPacketHandler::onSummonByKeybind);
         registrar.playToServer(C2SSummonBond.TYPE, C2SSummonBond.STREAM_CODEC, ServerPacketHandler::onSummonBond);
         registrar.playToServer(C2SBreakBond.TYPE, C2SBreakBond.STREAM_CODEC, ServerPacketHandler::onBreakBond);
+        registrar.playToServer(C2SClaimEntity.TYPE, C2SClaimEntity.STREAM_CODEC, ServerPacketHandler::onClaimEntity);
 
         registrar.playToClient(S2CRosterSync.TYPE, S2CRosterSync.STREAM_CODEC, ClientPacketHandler::onRosterSync);
     }

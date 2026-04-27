@@ -6,5 +6,7 @@
   "petsummon.screen.empty": "No bonds yet.",
   "petsummon.screen.summon": "Summon",
   "petsummon.screen.break": "Break",
-  "petsummon.screen.break_confirm": "Sure?"
+  "petsummon.screen.break_confirm": "Sure?",
+  "petsummon.screen.bind": "Bind this %s",
+  "petsummon.screen.bind_hint": "Look at a tamed pet to bind it"
 }
