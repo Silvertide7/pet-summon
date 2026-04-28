@@ -2,32 +2,32 @@
 
 Catalog of features to consider, grouped by scope. Treat tier 1 as the MVP definition; everything below is opt-in. Not a roadmap — a menu.
 
+**Status legend** — ✅ shipped · ⬜ pending · ❌ skipped (with reason)
+
 ---
 
 ## Tier 1 — Core (MVP)
 
 The minimum to ship.
 
-- **Multi-pet roster**, configurable max (default 5).
-- **Keybind opens a custom screen.** No items, no commands required for normal play. Default key unbound (let the user pick) to avoid conflicts.
-- **Direct summon keybind** — summons the player's **active pet**, bypassing the screen. Active pet is set explicitly from the roster screen (star icon per row, click to toggle), not derived from last-summoned. Clicking Summon on a different row in the screen does not change the active pet — that's what makes "summon my dog as a one-time thing while my horse stays active" work.
-  - Storage: `Optional<UUID> activePetId` on `BondRoster`. Cleared automatically when the active bond is broken or the roster goes empty. Not auto-set from first claim — leave empty until user explicitly sets one.
-  - Fallback when no active is set: oldest-bonded.
-  - New packet `C2SSetActivePet(Optional<UUID> bondId)` — server validates the bondId is in the player's roster; empty Optional clears.
-  - `BondView` gains `boolean isActive`. `S2CRosterSync` carries it for free.
-  - Rename keybind lang key `key.kindred.summon_pet` → `key.kindred.summon_active_pet` to match the new semantics.
-- **Dismiss / unsummon.** Per-row screen button (and likely a `dismiss_pet` keybind for "dismiss most-recently-summoned"). Snapshots the pet's current state before discarding so summon restores it exactly. Eject any player riding the pet first; stop-riding any vehicle; eject other passengers. Particle + sound on discard so it reads as "recalled" instead of "vanished." Note: this lets a low-HP pet escape death — same shape as cross-dim summon's existing rescue behavior, accepted as feature not exploit. HP is preserved as-is across dismiss/summon — no free heal.
-- **Claim flow**: from the screen, arm "claim next interaction"; right-click an eligible tamed pet within N seconds to bond.
-- **Break-bond flow**: per-row button with two-step confirm (alchemical-style 3s arm window).
-- **Summon button** per row → pet walks to you if close, teleports if far in same dim, materializes from stored NBT if in another dim or unloaded.
-- **Cross-dimensional summon** with safe handling — store pet as data when its owner leaves the dim, materialize fresh on summon.
-- **Anti-dupe** via per-bond revision counter in player attachment + world `SavedData`. Cancel `EntityJoinLevelEvent` for stale revisions.
-- **Persistence across player death** — `AttachmentType.copyOnDeath(true)` so the roster survives respawn.
-- **Bond eligibility = vanilla `OwnableEntity` + owner-match.** No allowlist needed; modded pets that implement vanilla ownership work out of the box.
-- **Datapack blocklist tag** `#<modid>:bond_blocklist` — empty by default, server admins add types they don't want bondable.
-- **Server-side configs** (`ModConfigSpec`): `maxBonds`, `requireSaddleable` (mount-only mode), `walkRange`, `walkSpeed`, `summonCooldownTicks`, `crossDimAllowed`, `claimWindowSeconds`, `deathIsPermanent`, `autoMount`, `requireSpace`.
-- **Summon sound + particles** on summon (server-broadcast S2C ack).
-- **Lang file** with all user-facing strings under the mod's namespace.
+- ✅ **Multi-pet roster**, configurable max — default now **10**.
+- ✅ **Keybind opens a custom screen.** Default `G` (Open Roster).
+- ✅ **Direct summon keybind** — summons the player's **active pet**, bypassing the screen. Default `V`. Active pet is set explicitly via the "Set Active" button in the preview pane.
+  - Storage: `Optional<UUID> activePetId` on `BondRoster`. Cleared automatically when the active bond is broken or the roster goes empty.
+  - First-bond invariant: `tryClaim` auto-sets the first bond as active so the keybind is never useless after the first bond.
+  - `C2SSetActivePet(Optional<UUID>)`, `BondView.isActive`, `S2CRosterSync` carries it.
+- ✅ **Dismiss / unsummon.** Per-row screen button. Snapshots the pet's NBT before discarding. Eject passengers/stop-riding. Particles + sound on discard. HP preserved as-is.
+- ✅ **Claim flow** — server-validated via `C2SCheckBindCandidate` round-trip on screen open; the Bind button only appears for entities the server confirms are bindable.
+- ✅ **Break-bond flow** — per-row X button with 3s "Confirm" arm window. Materializes dismissed pets next to player first so they aren't deleted.
+- ✅ **Summon button** per row → walk if close, teleport if far in same dim, materialize from snapshot if cross-dim or unloaded.
+- ✅ **Cross-dimensional summon**.
+- ✅ **Anti-dupe** via per-bond revision counter on attachments + world `SavedData`; stale-revision joins are cancelled.
+- ✅ **Persistence across player death** — `AttachmentType.copyOnDeath(true)`.
+- ✅ **Bond eligibility = vanilla `OwnableEntity` + owner-match.**
+- ✅ **Datapack blocklist tag** `#kindred:bond_blocklist`.
+- ✅ **Server-side configs** (`ModConfigSpec`). See [Config.java](src/main/java/net/silvertide/kindred/config/Config.java) for the live list.
+- ✅ **Summon sound + particles** — `PORTAL_TRIGGER` (configurable) + `POOF` particles on materialize.
+- ✅ **Lang file** with all user-facing strings under `kindred.*` / `key.kindred.*`.
 
 ---
 
@@ -35,35 +35,35 @@ The minimum to ship.
 
 Nice things that make it feel finished, but you can ship without them.
 
-- **Rename pets** from the screen (inline edit; click name, type, save). Stored in `Bond.displayName`, syncs to entity custom name.
-- **Pet preview in the menu** — render the entity model with `InventoryScreen.renderEntityInInventoryFollowsMouse`, the same path the vanilla inventory uses for the player preview. Renders the player's *actual* bonded entity (correct variant, equipment, collar, age, custom name) — not a generic species icon.
-  - **Render only the expanded row** (click to expand), not every row simultaneously. Keeps cost bounded as bond count grows. Per-render cost is ~0.1–0.3ms (vanilla) or 2–10× heavier for GeckoLib/Citadel; static-vs-animated is the same cost (animation is tickCount-driven, essentially free).
-  - **NBT lives in `BondView` and ships with `S2CRosterSync`.** Roster sync grows by ~5–15 KB for a typical 5-bond roster, ~50 KB worst case (chested llama with full inventory). Negligible at any realistic frequency. Avoids a separate request/response round-trip.
-  - Preview entity constructed client-side via `EntityType.create(clientLevel)` + `entity.load(nbt)`. Never `addFreshEntity` — it exists only for the inventory render API, never enters the world, never ticks. Cache `Map<UUID, LivingEntity>` keyed by bondId. Cleared on screen close; cleared per-bond when the bond's revision changes (NBT may be stale).
-  - Cold-cache stutter on first render of a never-seen-this-session entity type (~50–100ms texture/model load). For click-to-expand UX the stutter happens on the click — acceptable. Optional mitigation: pre-warm all preview entities on screen open if it ever becomes annoying.
-  - Failure modes: `EntityType.create` returns null, NBT corrupted, entity not a `LivingEntity`, server-only type. Fall back to no preview (placeholder box with type name) rather than crashing.
-  - UI shape — choose at implementation time: (a) inline expand the clicked row into a card with the model on the left; or (b) fixed preview pane on one side that displays whichever row is selected. (b) is more discoverable, (a) is more compact.
-- **Quick stats** per row: speed, jump, max HP, current HP%. Computed from stored NBT. Mount-only stats (jump strength) hidden for non-mount pets.
-- **Reorder rows** by drag, or with up/down buttons. Stored as a position int per bond.
-- **Set primary pet** (star icon) — the direct-summon hotkey targets primary instead of last-summoned.
-- **Search / filter** when many pets (input field at top, fuzzy on name + type).
-- **Cooldown indicator** — radial sweep over the summon button using `g.fill` arcs while on cooldown.
-- **Last-known-location** display per row — dimension and approx coords, "X seconds/minutes ago".
-- **Sound packs** — datapack-overridable summon SFX per entity type.
-- **Auto-mount toggle per bond** (overrides global config; only meaningful for saddleable bonds).
-- **Confirm dialog when breaking a bond on a pet carrying inventory** — prevent accidental loss (chests on donkeys/llamas/mules; wolf armor; etc.).
-- **Cancel hold-to-confirm on damage.** Config `cancelOnDamage` (bool, default true). When the player takes damage during a hold-to-summon or hold-to-dismiss, cancel the in-progress timer so they can react. Mirrors vanilla's bow-draw and food-eating interrupt behavior. Implementation: client-side listener for `LivingDamageEvent`/`LivingHurtEvent` on the local player (or server-side detect + S2C cancel ping), calls `HoldActionState.cancel()`. Open question: should the cancel also block re-arming for a short window like vanilla's hurt-immunity? Probably not — let the player immediately retry once safe.
-- **Death-revival cooldown** for non-permanent death. Config `revivalCooldownMs` (long, default `0` = disabled). When a bonded pet dies in non-permanent mode (`deathIsPermanent=false`), summoning is blocked until N ms after the death so deaths still feel weighty without going full permadeath. Implementation: add `Optional<Long> diedAt` to `Bond`, set in `LivingDeathEvent` handler when `deathIsPermanent=false`; `BondManager.summon` checks `now - diedAt < revivalCooldownMs` before any other path and returns a new `SummonResult.REVIVAL_PENDING`. Clear `diedAt` on successful summon (the revival). Could surface as a "Reviving in Xs" indicator in the screen and/or block the keybind hold the same way `ON_COOLDOWN` does (ship `revivalRemainingMs` in `BondView`).
-- **Global summon cooldown** to prevent spam-summoning across the whole roster (today's per-bond `summonCooldownTicks` only stops summoning the *same* pet repeatedly — you can still summon all 5 bonds in a row). Config `summonGlobalCooldownMs` (long, default 10 000 ms = 10 s; admin-tunable for tighter or looser server economies). Per-player cooldown between any two summon actions regardless of which bond. Implementation can share the **same mechanism the death-revival cooldown uses** — both are "block summon for N ms after some event"; they differ only in scope:
-  - **Revival cooldown** (death event) → blocks summon of *that specific bond*.
-  - **Global cooldown** (any successful summon) → blocks summon of *any bond* for the player.
-  - Suggested shape: a per-player tracker with two axes — a global "next-allowed-summon" timestamp and a per-bond `diedAt`. Each summon attempt checks both. New result enum entry `SummonResult.GLOBAL_COOLDOWN`. Ship the remaining global cooldown in the roster sync (single number per player, not per bond) so the keybind pre-check is accurate without round-trips.
-  - Note: a global cooldown also makes a separate dismiss cooldown unnecessary — the player can't summon-dismiss-summon-dismiss spam anyway.
-- **Server-validated bind candidate.** Today the client raycasts and shows the Bind button for any `OwnableEntity` regardless of ownership, because `AbstractHorse` doesn't sync its owner UUID via `SynchedEntityData` (only the tamed flag bit is synced). Clicking on a wild horse shows the button, click fails with `NOT_OWNED_BY_PLAYER` chat message. Cleaner UX: when the raycasted entity changes, send `C2SCheckCandidate(entityUUID)`, server replies with `S2CCandidateResult(entityUUID, canBind, denyReason)`. Client renders Bind/disabled/hidden based on the response. One packet pair, no per-frame chatter (only fires when hover changes). Eliminates the wart entirely. Note: `TamableAnimal` (wolves, cats, parrots) *does* sync owner UUID, so the wart only affects horse-likes today.
-- **Smarter spawn placement on summon.** Today the space check is a strict 3×3×3 centered on the player. Improvements:
-  - Search a 5×5 (x/z) footprint around the player for a valid 3×3×3 pocket; pick the closest free spot rather than refusing if the player's exact tile is blocked.
-  - Always spawn on the ground (top of a solid block within the search area), not at the player's feet level when they're mid-air.
-  - Refuse summon when the player is more than ~1 block above the ground (no air-summons). Returns a new `SummonResult.PLAYER_AIRBORNE`.
+### Shipped
+
+- ✅ **Rename pets** from the screen — inline edit (click Rename in preview pane → type → Enter to commit, Esc to cancel). Stored in `Bond.displayName`, syncs to the live entity's `customName` and visibility, also pulled back from a vanilla nametag if the player uses one.
+- ✅ **Pet preview in the menu** — fixed pane on the right (option B). `InventoryScreen.renderEntityInInventoryFollowsMouse` with `LivingEntity` instances built lazily by `PreviewEntityCache` from each bond's snapshot NBT. Snapshot is captured fresh per sync from the live entity if loaded, so saddle/armor/equipment changes flow into the preview without waiting for a chunk unload. Cache cleared on every `S2CRosterSync` arrival to invalidate stale preview entities. See `NOTES.md` for the saddle-flag access transformer.
+- ✅ **Set primary pet** — "Set Active" button in the preview pane (no star-toggling).
+- ✅ **Cancel hold-to-confirm on damage** — config `cancelHoldOnDamage` (default true). Server-side `LivingDamageEvent.Pre` → `S2CCancelHold` ping cancels both keybind and screen-button holds.
+- ✅ **Death-revival cooldown** — config `revivalCooldownSeconds` (default 0 = disabled). `Optional<Long> diedAt` on `Bond`. New `SummonResult.REVIVAL_PENDING`. Surfaced in the screen as "Respawning Xs" and blocks the keybind. Clears on successful summon.
+- ✅ **Global summon cooldown** — config `summonGlobalCooldownSeconds` (default 10s). Per-player tracker (`GlobalSummonCooldownTracker`). New `SummonResult.GLOBAL_COOLDOWN`. Remaining ms ships in `S2CRosterSync` and renders as "Summon Cooldown: X.Xs" in the title bar.
+- ✅ **Server-validated bind candidate** — `C2SCheckBindCandidate` on screen open, server replies `S2CBindCandidateResult(uuid, canBind, denyMessageKey)`. Bind button hidden until confirmed. Deny reason replaces the "look at a tamed pet" hint with specific messaging ("You must tame this pet before bonding it" etc.).
+- ✅ **Smarter spawn placement** — 5×5 footprint search ranked by `forwardness − 0.2 × lateral + 0.05 × dist` so the pet prefers a spot in front of the player. On-player tile is last resort. `dy = -1..3` column search handles 1-block step-up + 3-block step-down. New `SummonResult.PLAYER_AIRBORNE` when player is too far off the ground.
+- ✅ **Suppress loot/XP drops on bonded-pet death** — config `dropLootOnDeath` (default true preserves vanilla). When false, `LivingDropsEvent` and `LivingExperienceDropEvent` are cancelled for entities with `Bonded` attachment. Pairs with revival cooldown so revived pets keep saddle/armor/chest contents.
+- ✅ **Materialize-before-break for dismissed pets** — `Bond.dismissed` flag set in `BondManager.dismiss()`, cleared in `materializeFresh`. `breakBond` materializes next to the player only when `dismissed=true` (i.e. the pet would otherwise be deleted because no chunk-version exists). Pets in unloaded chunks are *not* teleported on break — they stay where the player left them.
+- ✅ **Bond count display** — "X/Y" in the title bar's left side, matching the cooldown indicator on the right.
+- ✅ **Loaded vs stored state in subtitle** — "Horse · Overworld" when loaded, "Horse · Resting" when dismissed/stored. Driven by `BondView.loaded` (server checks `BondIndex.find(...).isPresent()`).
+- ✅ **Disabled buttons clearly distinct** — Summon and Dismiss buttons get a much darker bg and dimmed text when disabled (revival pending, on cooldown, or not loaded for dismiss).
+
+### Pending
+
+- ⬜ **Reorder rows** by drag or up/down buttons. More relevant now that the cap is 10.
+- ⬜ **Search / filter** input at top of roster.
+- ⬜ **Cooldown indicator** — radial sweep over the Summon button while on cooldown (we have text instead today).
+- ⬜ **Last-known-location** display per row — "Overworld · 200,64,-410 · 5m ago" for `loaded=false` rows.
+- ⬜ **Sound packs** — datapack-overridable summon SFX per entity type.
+- ⬜ **Auto-mount toggle per bond** — overrides global `autoMount` config; only meaningful for saddleable bonds.
+
+### Skipped
+
+- ❌ **Quick stats per row** (HP / speed / jump) — rejected as UI noise; bond rows are intentionally minimal. Could revisit if leveling/perks features ever ship and stats become meaningful gameplay info.
+- ❌ **Confirm dialog when breaking a bond on a chest/armor pet** — superseded by the "materialize before break" flow above. Pets are no longer deleted, so the dialog's safety value evaporated.
 
 ---
 
@@ -150,10 +150,10 @@ Cheap wins that delight users.
 
 ---
 
-## Decision log to fill in
+## Decision log
 
-When picking what to ship, note here:
-
-- What's in v1.0?
-- What's the next milestone after v1.0?
-- Any features above that turned out infeasible — and why?
+- **v1.0 = Tier 1 + most of Tier 2 polish.** All shipped items above are in. Pending Tier 2 items are nice-to-haves that don't gate v1.
+- **Default keybinds**: `V` (Summon Active Pet), `G` (Open Roster). Set in [Keybinds.java](src/main/java/net/silvertide/kindred/client/input/Keybinds.java).
+- **Default summon cap**: 10 (per player). Bumped from 5; rows scroll above 6 visible.
+- **Mod was renamed `petsummon` → `kindred`** mid-development. Working directory is still `mount_summon/` — see CLAUDE.md note.
+- See `NOTES.md` for non-obvious design decisions (saddle-flag AT, dismissed-flag rationale, scoring weights, etc.).

@@ -62,7 +62,8 @@ Pets bondable by default in vanilla: wolves, cats, parrots, horses, donkeys, mul
 - [Silvertide7/alchemical](https://github.com/Silvertide7/alchemical) — example of a procedurally-drawn, dynamic NeoForge screen (no PNG backgrounds, palette-driven, eased animations). Good to read when building the pet roster screen, but it's a stylistic reference — use what fits and ignore what doesn't.
 - [NeoForge docs](https://docs.neoforged.net/) — primary source of truth for APIs.
 - [Parchment](https://parchmentmc.org/docs/getting-started) — mapping reference.
-- [FEATURES.md](FEATURES.md) — feature catalog for scoping.
+- [FEATURES.md](FEATURES.md) — feature catalog with shipped/pending status.
+- [NOTES.md](NOTES.md) — non-obvious design decisions (bond state model, preview rendering, spawn placement scoring, networking, performance budget). Read this before extending or refactoring core systems.
 
 ## Conventions
 

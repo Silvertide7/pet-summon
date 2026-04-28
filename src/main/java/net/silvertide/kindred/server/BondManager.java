@@ -219,7 +219,7 @@ public final class BondManager {
         entityLevel.sendParticles(ParticleTypes.POOF, cx, cy, cz,
                 20, 0.3D, 0.3D, 0.3D, 0.05D);
         entityLevel.playSound(null, cx, cy, cz,
-                SoundEvents.ENDERMAN_TELEPORT, SoundSource.NEUTRAL, 0.6F, 1.2F);
+                SoundEvents.ENDERMAN_TELEPORT, SoundSource.NEUTRAL, 0.3F, 1.2F);
 
         // discard() synchronously fires EntityLeaveLevelEvent, which our handler uses
         // to snapshot the bond and untrack from BondIndex. No need to repeat that here.
@@ -411,8 +411,10 @@ public final class BondManager {
         if (withParticles) {
             level.sendParticles(ParticleTypes.POOF, x, y + 0.5D, z, 20, 0.3D, 0.3D, 0.3D, 0.05D);
         }
-        Holder<SoundEvent> sound = SoundEvents.PORTAL_TRIGGER;
-        level.playSound(null, x, y, z, sound, SoundSource.NEUTRAL, 0.5F, 1.2F);
+        // PORTAL_TRIGGER is declared as a raw SoundEvent in vanilla (not a Holder),
+        // so pass it directly to the matching playSound overload.
+        SoundEvent sound = SoundEvents.PORTAL_TRIGGER;
+        level.playSound(null, x, y, z, sound, SoundSource.NEUTRAL, 0.25F, 1.2F);
     }
 
     /**
