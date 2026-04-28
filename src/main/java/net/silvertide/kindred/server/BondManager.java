@@ -131,7 +131,8 @@ public final class BondManager {
                 initialName,
                 now,
                 0L,
-                Optional.empty()
+                Optional.empty(),
+                false  // newly bonded entity is in the world
         );
 
         // First bond claimed becomes active automatically. Subsequent claims keep the
@@ -150,22 +151,37 @@ public final class BondManager {
 
     public static BreakResult breakBond(ServerPlayer player, UUID bondId) {
         BondRoster roster = player.getData(ModAttachments.BOND_ROSTER.get());
-        if (roster.get(bondId).isEmpty()) return BreakResult.NO_SUCH_BOND;
-
-        player.setData(ModAttachments.BOND_ROSTER.get(), roster.without(bondId));
+        Optional<Bond> maybeBond = roster.get(bondId);
+        if (maybeBond.isEmpty()) return BreakResult.NO_SUCH_BOND;
 
         ServerLevel level = (ServerLevel) player.level();
         KindredSavedData saved = KindredSavedData.get(level);
 
+        // Only materialize-before-break when the pet was dismissed via the screen
+        // (i.e. only the snapshot exists, no chunk-saved entity). For pets just sitting
+        // in an unloaded chunk somewhere — at the player's home base, say — leave them
+        // where they are; teleporting to a player who's about to break the bond could
+        // strand them in a dangerous spot with no way to recall.
         Optional<Entity> existing = BondIndex.get().find(bondId);
+        if (existing.isEmpty() && maybeBond.get().dismissed()) {
+            materializeFresh(player, maybeBond.get(), level, saved);
+            existing = BondIndex.get().find(bondId);
+        }
+
+        // Re-read roster — materializeFresh updates the bond's revision/timestamps
+        // before we strip it.
+        BondRoster current = player.getData(ModAttachments.BOND_ROSTER.get());
+        player.setData(ModAttachments.BOND_ROSTER.get(), current.without(bondId));
+
         if (existing.isPresent()) {
             Entity entity = existing.get();
             entity.removeData(ModAttachments.BONDED.get());
             BondIndex.get().untrack(bondId);
             saved.clearBond(bondId);
         } else {
-            // Entity not loaded — wipe what we can, and queue the entity-side cleanup
-            // so its Bonded attachment is removed the next time it loads.
+            // Entity not loaded and materialize failed — wipe what we can, and queue
+            // the entity-side cleanup so its Bonded attachment is removed the next
+            // time it loads.
             saved.clearBond(bondId);
             saved.markPendingDisband(bondId);
         }
@@ -208,6 +224,13 @@ public final class BondManager {
         // discard() synchronously fires EntityLeaveLevelEvent, which our handler uses
         // to snapshot the bond and untrack from BondIndex. No need to repeat that here.
         entity.discard();
+
+        // Mark the bond as snapshot-only so a later breakBond knows to materialize
+        // before clearing — distinguishes this from "in an unloaded chunk" where the
+        // entity still exists and would be teleported to the player by mistake.
+        BondRoster post = player.getData(ModAttachments.BOND_ROSTER.get());
+        post.get(bondId).ifPresent(b -> player.setData(ModAttachments.BOND_ROSTER.get(),
+                post.with(b.withDismissed(true))));
 
         Kindred.LOGGER.info("[kindred] {} dismissed bond {}", player.getGameProfile().getName(), bondId);
         return DismissResult.DISMISSED;
@@ -341,7 +364,8 @@ public final class BondManager {
         BondRoster currentRoster = player.getData(ModAttachments.BOND_ROSTER.get());
         Bond updated = bond.withRevision(newRevision)
                 .withLastSummonedAt(System.currentTimeMillis())
-                .withDiedAt(Optional.empty());  // successful materialize IS the revival
+                .withDiedAt(Optional.empty())  // successful materialize IS the revival
+                .withDismissed(false);         // entity is back in the world
         player.setData(ModAttachments.BOND_ROSTER.get(), currentRoster.with(updated));
 
         GlobalSummonCooldownTracker.get().recordSummon(player.getUUID());
@@ -387,8 +411,8 @@ public final class BondManager {
         if (withParticles) {
             level.sendParticles(ParticleTypes.POOF, x, y + 0.5D, z, 20, 0.3D, 0.3D, 0.3D, 0.05D);
         }
-        Holder<SoundEvent> sound = SoundEvents.NOTE_BLOCK_CHIME;
-        level.playSound(null, x, y, z, sound, SoundSource.NEUTRAL, 0.7F, 1.4F);
+        Holder<SoundEvent> sound = SoundEvents.PORTAL_TRIGGER;
+        level.playSound(null, x, y, z, sound, SoundSource.NEUTRAL, 0.5F, 1.2F);
     }
 
     /**
