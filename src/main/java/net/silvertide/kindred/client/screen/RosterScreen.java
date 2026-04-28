@@ -662,6 +662,12 @@ public final class RosterScreen extends Screen {
             Entity candidate = findClaimCandidate();
             if (candidate != null) {
                 PacketDistributor.sendToServer(new C2SClaimEntity(candidate.getUUID()));
+                // Clear the candidate immediately so the button disappears on click;
+                // server replies via chat for success / failure either way. Avoids
+                // showing "Bond to this Wolf" after the wolf is already bonded.
+                initialCandidate = null;
+                bindCandidateConfirmed = null;
+                bindDenyKey = java.util.Optional.empty();
                 return true;
             }
         }

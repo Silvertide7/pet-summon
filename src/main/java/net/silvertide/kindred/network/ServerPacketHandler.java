@@ -1,6 +1,7 @@
 package net.silvertide.kindred.network;
 
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -202,8 +203,15 @@ public final class ServerPacketHandler {
                     if (revivalCooldownMs > 0L && b.diedAt().isPresent()) {
                         revivalRemaining = Math.max(0L, revivalCooldownMs - (now - b.diedAt().get()));
                     }
-                    boolean loaded = BondIndex.get().find(b.bondId()).isPresent();
-                    return BondView.from(b, roster.isActive(b.bondId()), loaded, remaining, revivalRemaining);
+                    Optional<Entity> live = BondIndex.get().find(b.bondId());
+                    boolean loaded = live.isPresent();
+                    // Capture live NBT for loaded pets so saddle/armor/equipment changes
+                    // made in-world flow into the preview without waiting for the pet
+                    // to leave its chunk (which is when the cached snapshot refreshes).
+                    CompoundTag nbt = loaded
+                            ? live.get().saveWithoutId(new CompoundTag())
+                            : b.nbtSnapshot();
+                    return BondView.from(b, roster.isActive(b.bondId()), loaded, remaining, revivalRemaining, nbt);
                 })
                 .toList();
         long globalRemaining = GlobalSummonCooldownTracker.get()

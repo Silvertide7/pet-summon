@@ -9,14 +9,14 @@ public final class Keybinds {
     public static final KeyMapping SUMMON_ACTIVE_PET = new KeyMapping(
             "key.kindred.summon_active_pet",
             InputConstants.Type.KEYSYM,
-            InputConstants.UNKNOWN.getValue(),
+            InputConstants.KEY_V,
             CATEGORY
     );
 
     public static final KeyMapping OPEN_ROSTER = new KeyMapping(
             "key.kindred.open_roster",
             InputConstants.Type.KEYSYM,
-            InputConstants.UNKNOWN.getValue(),
+            InputConstants.KEY_G,
             CATEGORY
     );
 

@@ -387,8 +387,8 @@ public final class BondManager {
         if (withParticles) {
             level.sendParticles(ParticleTypes.POOF, x, y + 0.5D, z, 20, 0.3D, 0.3D, 0.3D, 0.05D);
         }
-        Holder<SoundEvent> sound = SoundEvents.NOTE_BLOCK_FLUTE;
-        level.playSound(null, x, y, z, sound, SoundSource.NEUTRAL, 0.7F, 1.5F);
+        Holder<SoundEvent> sound = SoundEvents.NOTE_BLOCK_CHIME;
+        level.playSound(null, x, y, z, sound, SoundSource.NEUTRAL, 0.7F, 1.4F);
     }
 
     /**

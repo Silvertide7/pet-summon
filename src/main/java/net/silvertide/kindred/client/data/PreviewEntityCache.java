@@ -2,9 +2,12 @@ package net.silvertide.kindred.client.data;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.animal.horse.AbstractHorse;
 import net.silvertide.kindred.Kindred;
 import net.silvertide.kindred.network.BondView;
 
@@ -53,7 +56,7 @@ public final class PreviewEntityCache {
             Kindred.LOGGER.warn("[kindred] Failed to load NBT for preview entity {}: {}", view.entityType(), t.getMessage());
             return null;
         }
-        freshenForPreview(living);
+        freshenForPreview(living, view.nbtSnapshot());
         return living;
     }
 
@@ -64,7 +67,7 @@ public final class PreviewEntityCache {
      * Also hides the floating nametag so it doesn't overlap the preview render;
      * the roster row's name still uses {@code bond.displayName()}.
      */
-    private static void freshenForPreview(LivingEntity living) {
+    private static void freshenForPreview(LivingEntity living, CompoundTag nbt) {
         living.setHealth(living.getMaxHealth());
         living.hurtTime = 0;
         living.deathTime = 0;
@@ -74,6 +77,17 @@ public final class PreviewEntityCache {
         living.fallDistance = 0F;
         living.setTicksFrozen(0);
         living.setCustomNameVisible(false);
+
+        // Saddle isn't tracked in standard equipment slots — it lives in a separate
+        // inventory slot with the "show saddle" state driven by a SynchedEntityData
+        // flag bit. The flag is normally set by AbstractHorse.updateContainerEquipment,
+        // which no-ops on the client side. The preview entity never gets the synced
+        // value, so we read the saddle presence from the snapshot NBT and push the
+        // bit ourselves. Bit 4 of DATA_ID_FLAGS is FLAG_SADDLE.
+        if (living instanceof AbstractHorse horse) {
+            boolean saddled = nbt.contains("SaddleItem", Tag.TAG_COMPOUND);
+            horse.setFlag(4, saddled);
+        }
     }
 
     public static void clear() {

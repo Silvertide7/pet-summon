@@ -77,9 +77,15 @@ public record BondView(
 
     private static final UUID NO_UUID = new UUID(0L, 0L);
 
-    public static BondView from(Bond bond, boolean isActive, boolean loaded, long cooldownRemainingMs, long revivalRemainingMs) {
-        UUID entityUUID = bond.nbtSnapshot().hasUUID("UUID")
-                ? bond.nbtSnapshot().getUUID("UUID")
+    /**
+     * Build a view using a specific NBT snapshot — caller passes the live entity's
+     * current NBT when the pet is loaded, so changes made while the pet is in-world
+     * (saddling, putting on armor, breeding, etc.) show up in the preview without
+     * waiting for the entity to leave its chunk.
+     */
+    public static BondView from(Bond bond, boolean isActive, boolean loaded, long cooldownRemainingMs, long revivalRemainingMs, CompoundTag nbtSnapshot) {
+        UUID entityUUID = nbtSnapshot.hasUUID("UUID")
+                ? nbtSnapshot.getUUID("UUID")
                 : NO_UUID;
         return new BondView(
                 bond.bondId(),
@@ -92,7 +98,7 @@ public record BondView(
                 loaded,
                 cooldownRemainingMs,
                 revivalRemainingMs,
-                bond.nbtSnapshot()
+                nbtSnapshot
         );
     }
 }

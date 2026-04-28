@@ -5,6 +5,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import net.silvertide.kindred.client.data.ClientRosterData;
 import net.silvertide.kindred.client.data.HoldActionState;
+import net.silvertide.kindred.client.data.PreviewEntityCache;
 import net.silvertide.kindred.client.screen.RosterScreen;
 import net.silvertide.kindred.network.packet.S2CBindCandidateResult;
 import net.silvertide.kindred.network.packet.S2CCancelHold;
@@ -12,7 +13,13 @@ import net.silvertide.kindred.network.packet.S2CRosterSync;
 
 public final class ClientPacketHandler {
     public static void onRosterSync(S2CRosterSync payload, IPayloadContext context) {
-        context.enqueueWork(() -> ClientRosterData.update(payload.bonds(), payload.globalCooldownRemainingMs()));
+        context.enqueueWork(() -> {
+            ClientRosterData.update(payload.bonds(), payload.globalCooldownRemainingMs());
+            // Invalidate the preview entity cache — any pet's NBT may have changed
+            // (saddle, armor, chest contents, age) and the cached LivingEntity instance
+            // was built from the previous snapshot. Next render rebuilds from fresh NBT.
+            PreviewEntityCache.clear();
+        });
     }
 
     public static void onBindCandidateResult(S2CBindCandidateResult payload, IPayloadContext context) {
