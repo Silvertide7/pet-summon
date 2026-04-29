@@ -28,7 +28,9 @@ import net.minecraft.world.level.block.CampfireBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.neoforge.common.NeoForge;
 import net.silvertide.kindred.Kindred;
+import net.silvertide.kindred.events.BondClaimEvent;
 import net.silvertide.kindred.attachment.Bond;
 import net.silvertide.kindred.attachment.BondRoster;
 import net.silvertide.kindred.attachment.Bonded;
@@ -62,7 +64,8 @@ public final class BondManager {
         AT_CAPACITY,
         ALREADY_BONDED,
         NOT_ENOUGH_XP,
-        PMMO_LOCKED
+        PMMO_LOCKED,
+        CANCELLED
     }
 
     public enum BreakResult {
@@ -153,6 +156,12 @@ public final class BondManager {
     public static ClaimResult tryClaim(ServerPlayer player, Entity target) {
         ClaimResult eligibility = checkClaimEligibility(player, target);
         if (eligibility != ClaimResult.CLAIMED) return eligibility;
+
+        // External cancel hook — quest mods, datapack predicates, etc. can reject
+        // the claim past our built-in gates. Posted after the cheap checks so
+        // subscribers don't need to repeat ownership/blocklist/cap logic.
+        BondClaimEvent event = new BondClaimEvent(player, target);
+        if (NeoForge.EVENT_BUS.post(event).isCanceled()) return ClaimResult.CANCELLED;
 
         BondRoster roster = player.getData(ModAttachments.BOND_ROSTER.get());
         ServerLevel level = (ServerLevel) target.level();

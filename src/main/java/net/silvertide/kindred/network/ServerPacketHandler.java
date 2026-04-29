@@ -135,6 +135,7 @@ public final class ServerPacketHandler {
             case ALREADY_BONDED -> "kindred.bind.deny.already_bonded";
             case NOT_ENOUGH_XP -> "kindred.bind.deny.not_enough_xp";
             case PMMO_LOCKED -> "kindred.bind.deny.pmmo_locked";
+            case CANCELLED -> "kindred.bind.deny.cancelled";
             default -> "kindred.bind.deny.generic";
         };
     }
