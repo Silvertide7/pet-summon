@@ -1,4 +1,4 @@
-package net.silvertide.kindred.server.events;
+package net.silvertide.kindred.events;
 
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
@@ -21,10 +21,10 @@ import net.silvertide.kindred.attachment.BondRoster;
 import net.silvertide.kindred.attachment.Bonded;
 import net.silvertide.kindred.config.Config;
 import net.silvertide.kindred.registry.ModAttachments;
-import net.silvertide.kindred.server.BondIndex;
-import net.silvertide.kindred.server.BondManager;
-import net.silvertide.kindred.server.OfflineSnapshot;
-import net.silvertide.kindred.server.KindredSavedData;
+import net.silvertide.kindred.bond.BondIndex;
+import net.silvertide.kindred.bond.BondService;
+import net.silvertide.kindred.data.OfflineSnapshot;
+import net.silvertide.kindred.data.KindredSavedData;
 
 import java.util.Optional;
 
@@ -85,7 +85,7 @@ public final class EntityEvents {
         if (Config.DEATH_IS_PERMANENT.get()) {
             ServerPlayer owner = level.getServer().getPlayerList().getPlayer(bonded.ownerUUID());
             if (owner != null) {
-                BondManager.breakBond(owner, bonded.bondId());
+                BondService.breakBond(owner, bonded.bondId());
             } else {
                 KindredSavedData.get(level).markKilledOffline(bonded.bondId());
             }
@@ -107,7 +107,7 @@ public final class EntityEvents {
         //
         // diedAt is also set here so EntityLeaveLevelEvent's snapshotEntity knows to skip
         // overwriting our death snapshot with the post-drop carcass state. The revival
-        // cooldown gate in BondManager.summon ignores diedAt when revivalCooldownMs=0,
+        // cooldown gate in BondService.summon ignores diedAt when revivalCooldownMs=0,
         // so this is safe to set regardless of cooldown config.
         CompoundTag deathNbt = entity.saveWithoutId(new CompoundTag());
         if (Config.DROP_LOOT_ON_DEATH.get()) {

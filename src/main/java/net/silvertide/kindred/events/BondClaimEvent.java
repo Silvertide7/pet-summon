@@ -10,7 +10,7 @@ import net.neoforged.bus.api.ICancellableEvent;
  * Listeners can {@link #setCanceled(boolean) cancel} to reject the claim — the
  * player sees a "binding cancelled" message and no bond writes happen.
  *
- * <p>Fires on the server only, after {@code BondManager.checkClaimEligibility}
+ * <p>Fires on the server only, after {@code BondService.checkClaimEligibility}
  * has returned {@code CLAIMED}, so listeners can assume the basic gates
  * (ownership, blocklist, capacity, XP, PMMO) already passed. Use this hook for
  * custom gates: quest progress, party rules, datapack predicates, KubeJS

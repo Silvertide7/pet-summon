@@ -1,4 +1,4 @@
-package net.silvertide.kindred.server;
+package net.silvertide.kindred.command;
 
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
@@ -21,6 +21,7 @@ import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.silvertide.kindred.Kindred;
 import net.silvertide.kindred.attachment.Bond;
 import net.silvertide.kindred.attachment.BondRoster;
+import net.silvertide.kindred.bond.BondService;
 import net.silvertide.kindred.registry.ModAttachments;
 
 import java.util.Comparator;
@@ -72,9 +73,9 @@ public final class KindredCommand {
             ctx.getSource().sendFailure(Component.literal("No entity in your line of sight."));
             return 0;
         }
-        BondManager.ClaimResult result = BondManager.tryClaim(player, target);
+        BondService.ClaimResult result = BondService.tryClaim(player, target);
         ctx.getSource().sendSuccess(() -> Component.literal("Claim " + describeEntityType(target) + ": " + result.name()), false);
-        return result == BondManager.ClaimResult.CLAIMED ? 1 : 0;
+        return result == BondService.ClaimResult.CLAIMED ? 1 : 0;
     }
 
     private static int runList(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
@@ -110,11 +111,11 @@ public final class KindredCommand {
             ctx.getSource().sendFailure(Component.literal("No bond at index " + index + "."));
             return 0;
         }
-        BondManager.SummonResult result = BondManager.summon(player, bond.bondId());
+        BondService.SummonResult result = BondService.summon(player, bond.bondId());
         ctx.getSource().sendSuccess(() -> Component.literal("Summon [" + index + "] " + shortId(bond.bondId()) + ": " + result.name()), false);
-        return result == BondManager.SummonResult.WALKING
-                || result == BondManager.SummonResult.TELEPORTED_NEAR
-                || result == BondManager.SummonResult.SUMMONED_FRESH ? 1 : 0;
+        return result == BondService.SummonResult.WALKING
+                || result == BondService.SummonResult.TELEPORTED_NEAR
+                || result == BondService.SummonResult.SUMMONED_FRESH ? 1 : 0;
     }
 
     private static int runBreak(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
@@ -125,9 +126,9 @@ public final class KindredCommand {
             ctx.getSource().sendFailure(Component.literal("No bond at index " + index + "."));
             return 0;
         }
-        BondManager.BreakResult result = BondManager.breakBond(player, bond.bondId());
+        BondService.BreakResult result = BondService.breakBond(player, bond.bondId());
         ctx.getSource().sendSuccess(() -> Component.literal("Break [" + index + "] " + shortId(bond.bondId()) + ": " + result.name()), false);
-        return result == BondManager.BreakResult.BROKEN ? 1 : 0;
+        return result == BondService.BreakResult.BROKEN ? 1 : 0;
     }
 
     private static int runDismiss(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
@@ -138,9 +139,9 @@ public final class KindredCommand {
             ctx.getSource().sendFailure(Component.literal("No bond at index " + index + "."));
             return 0;
         }
-        BondManager.DismissResult result = BondManager.dismiss(player, bond.bondId());
+        BondService.DismissResult result = BondService.dismiss(player, bond.bondId());
         ctx.getSource().sendSuccess(() -> Component.literal("Dismiss [" + index + "] " + shortId(bond.bondId()) + ": " + result.name()), false);
-        return result == BondManager.DismissResult.DISMISSED ? 1 : 0;
+        return result == BondService.DismissResult.DISMISSED ? 1 : 0;
     }
 
     private static int runActive(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {

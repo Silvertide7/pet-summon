@@ -11,7 +11,7 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
 import net.silvertide.kindred.attachment.Bond;
 import net.silvertide.kindred.attachment.BondRoster;
 import net.silvertide.kindred.config.Config;
-import net.silvertide.kindred.server.BondIndex;
+import net.silvertide.kindred.bond.BondIndex;
 import net.silvertide.kindred.network.packet.C2SBreakBond;
 import net.silvertide.kindred.network.packet.C2SCheckBindCandidate;
 import net.silvertide.kindred.network.packet.C2SClaimEntity;
@@ -25,8 +25,8 @@ import net.silvertide.kindred.network.packet.C2SSummonByKeybind;
 import net.silvertide.kindred.network.packet.S2CBindCandidateResult;
 import net.silvertide.kindred.network.packet.S2CRosterSync;
 import net.silvertide.kindred.registry.ModAttachments;
-import net.silvertide.kindred.server.BondManager;
-import net.silvertide.kindred.server.GlobalSummonCooldownTracker;
+import net.silvertide.kindred.bond.BondService;
+import net.silvertide.kindred.bond.GlobalSummonCooldownTracker;
 
 import java.util.List;
 import java.util.Optional;
@@ -59,7 +59,7 @@ public final class ServerPacketHandler {
                 player.sendSystemMessage(Component.literal("No active pet set."));
                 return;
             }
-            BondManager.SummonResult result = BondManager.summon(player, activeId.get());
+            BondService.SummonResult result = BondService.summon(player, activeId.get());
             player.sendSystemMessage(messageForSummonResult(result));
             if (isSummonSuccess(result)) sendRosterSync(player);
         });
@@ -68,7 +68,7 @@ public final class ServerPacketHandler {
     public static void onSummonBond(C2SSummonBond payload, IPayloadContext context) {
         context.enqueueWork(() -> {
             if (!(context.player() instanceof ServerPlayer player)) return;
-            BondManager.SummonResult result = BondManager.summon(player, payload.bondId());
+            BondService.SummonResult result = BondService.summon(player, payload.bondId());
             player.sendSystemMessage(messageForSummonResult(result));
             if (isSummonSuccess(result)) sendRosterSync(player);
         });
@@ -79,7 +79,7 @@ public final class ServerPacketHandler {
      * back to {@code "Summon: ENUM_NAME"} as a developer-readable diagnostic until
      * we've polished those paths.
      */
-    private static Component messageForSummonResult(BondManager.SummonResult result) {
+    private static Component messageForSummonResult(BondService.SummonResult result) {
         return switch (result) {
             case BANNED_DIMENSION -> Component.translatable("kindred.summon.banned_dimension");
             case BANNED_BIOME -> Component.translatable("kindred.summon.banned_biome");
@@ -90,7 +90,7 @@ public final class ServerPacketHandler {
     public static void onBreakBond(C2SBreakBond payload, IPayloadContext context) {
         context.enqueueWork(() -> {
             if (!(context.player() instanceof ServerPlayer player)) return;
-            BondManager.BreakResult result = BondManager.breakBond(player, payload.bondId());
+            BondService.BreakResult result = BondService.breakBond(player, payload.bondId());
             player.sendSystemMessage(Component.literal("Break: " + result.name()));
             sendRosterSync(player);
         });
@@ -99,9 +99,9 @@ public final class ServerPacketHandler {
     public static void onDismissBond(C2SDismissBond payload, IPayloadContext context) {
         context.enqueueWork(() -> {
             if (!(context.player() instanceof ServerPlayer player)) return;
-            BondManager.DismissResult result = BondManager.dismiss(player, payload.bondId());
+            BondService.DismissResult result = BondService.dismiss(player, payload.bondId());
             player.sendSystemMessage(Component.literal("Dismiss: " + result.name()));
-            if (result == BondManager.DismissResult.DISMISSED) sendRosterSync(player);
+            if (result == BondService.DismissResult.DISMISSED) sendRosterSync(player);
         });
     }
 
@@ -117,15 +117,15 @@ public final class ServerPacketHandler {
                         payload.entityUUID(), false, Optional.empty()));
                 return;
             }
-            BondManager.ClaimResult result = BondManager.checkClaimEligibility(player, target);
-            boolean canBind = result == BondManager.ClaimResult.CLAIMED;
+            BondService.ClaimResult result = BondService.checkClaimEligibility(player, target);
+            boolean canBind = result == BondService.ClaimResult.CLAIMED;
             Optional<String> denyKey = canBind ? Optional.empty() : Optional.of(denyKeyFor(result));
             PacketDistributor.sendToPlayer(player, new S2CBindCandidateResult(
                     payload.entityUUID(), canBind, denyKey));
         });
     }
 
-    private static String denyKeyFor(BondManager.ClaimResult result) {
+    private static String denyKeyFor(BondService.ClaimResult result) {
         return switch (result) {
             case NOT_OWNABLE -> "kindred.bind.deny.not_ownable";
             case NOT_OWNED_BY_PLAYER -> "kindred.bind.deny.not_owned";
@@ -153,8 +153,8 @@ public final class ServerPacketHandler {
                 player.sendSystemMessage(Component.literal("Bind failed: too far."));
                 return;
             }
-            BondManager.ClaimResult result = BondManager.tryClaim(player, target);
-            if (result == BondManager.ClaimResult.CLAIMED) {
+            BondService.ClaimResult result = BondService.tryClaim(player, target);
+            if (result == BondService.ClaimResult.CLAIMED) {
                 String typeId = BuiltInRegistries.ENTITY_TYPE.getKey(target.getType()).toString();
                 player.sendSystemMessage(Component.literal("Claimed " + typeId + "."));
                 sendRosterSync(player);
@@ -180,7 +180,7 @@ public final class ServerPacketHandler {
             // Mirror the rename onto the live entity so the in-world nametag updates
             // immediately. Offline pets pick this up on next materialize from displayName.
             BondIndex.get().find(payload.bondId())
-                    .ifPresent(e -> BondManager.applyDisplayName(e, sanitized));
+                    .ifPresent(e -> BondService.applyDisplayName(e, sanitized));
             sendRosterSync(player);
         });
     }
@@ -245,14 +245,14 @@ public final class ServerPacketHandler {
                 .toList();
         long globalRemaining = GlobalSummonCooldownTracker.get()
                 .remainingMs(player.getUUID(), Config.summonGlobalCooldownMs());
-        int effectiveCap = BondManager.effectiveMaxBonds(player);
+        int effectiveCap = BondService.effectiveMaxBonds(player);
         PacketDistributor.sendToPlayer(player, new S2CRosterSync(views, globalRemaining, effectiveCap));
     }
 
-    private static boolean isSummonSuccess(BondManager.SummonResult result) {
-        return result == BondManager.SummonResult.WALKING
-                || result == BondManager.SummonResult.TELEPORTED_NEAR
-                || result == BondManager.SummonResult.SUMMONED_FRESH;
+    private static boolean isSummonSuccess(BondService.SummonResult result) {
+        return result == BondService.SummonResult.WALKING
+                || result == BondService.SummonResult.TELEPORTED_NEAR
+                || result == BondService.SummonResult.SUMMONED_FRESH;
     }
 
     private ServerPacketHandler() {}

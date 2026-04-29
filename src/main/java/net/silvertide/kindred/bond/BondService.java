@@ -1,4 +1,4 @@
-package net.silvertide.kindred.server;
+package net.silvertide.kindred.bond;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -37,6 +37,7 @@ import net.silvertide.kindred.attachment.Bonded;
 import net.silvertide.kindred.compat.pmmo.PmmoCompat;
 import net.silvertide.kindred.compat.pmmo.PmmoMode;
 import net.silvertide.kindred.config.Config;
+import net.silvertide.kindred.data.KindredSavedData;
 import net.silvertide.kindred.registry.ModAttachments;
 import net.silvertide.kindred.registry.ModTags;
 
@@ -53,7 +54,7 @@ import java.util.UUID;
  * Event wiring (snapshot triggers, revision-cancel on join, offline drain) lives in
  * separate event handlers (not yet implemented).
  */
-public final class BondManager {
+public final class BondService {
 
     public enum ClaimResult {
         CLAIMED,
@@ -663,5 +664,5 @@ public final class BondManager {
         return false;
     }
 
-    private BondManager() {}
+    private BondService() {}
 }

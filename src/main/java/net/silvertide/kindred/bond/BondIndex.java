@@ -1,4 +1,4 @@
-package net.silvertide.kindred.server;
+package net.silvertide.kindred.bond;
 
 import net.minecraft.world.entity.Entity;
 
@@ -10,7 +10,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Live index of bonded entities currently loaded in the world, keyed by bondId.
  * Maintained incrementally via EntityJoinLevelEvent / EntityLeaveLevelEvent.
- * Used by BondManager to avoid scanning every entity in every dimension on summon.
+ * Used by BondService to avoid scanning every entity in every dimension on summon.
  */
 public final class BondIndex {
     private static final BondIndex INSTANCE = new BondIndex();

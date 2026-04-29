@@ -1,4 +1,4 @@
-package net.silvertide.kindred.server.events;
+package net.silvertide.kindred.events;
 
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
@@ -17,9 +17,9 @@ import net.silvertide.kindred.attachment.Bond;
 import net.silvertide.kindred.attachment.BondRoster;
 import net.silvertide.kindred.registry.ModAttachments;
 import net.silvertide.kindred.network.ServerPacketHandler;
-import net.silvertide.kindred.server.BondIndex;
-import net.silvertide.kindred.server.OfflineSnapshot;
-import net.silvertide.kindred.server.KindredSavedData;
+import net.silvertide.kindred.bond.BondIndex;
+import net.silvertide.kindred.data.OfflineSnapshot;
+import net.silvertide.kindred.data.KindredSavedData;
 
 import java.util.LinkedHashSet;
 import java.util.Optional;

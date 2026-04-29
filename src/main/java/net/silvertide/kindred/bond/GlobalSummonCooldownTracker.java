@@ -1,4 +1,4 @@
-package net.silvertide.kindred.server;
+package net.silvertide.kindred.bond;
 
 import java.util.Map;
 import java.util.UUID;

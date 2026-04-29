@@ -1,4 +1,4 @@
-package net.silvertide.kindred.server;
+package net.silvertide.kindred.data;
 
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
