@@ -546,7 +546,7 @@ public final class RosterScreen extends Screen {
 
     private boolean passesClientGates(Entity e) {
         if (!(e instanceof OwnableEntity)) return false;
-        if (BuiltInRegistries.ENTITY_TYPE.wrapAsHolder(e.getType()).is(ModTags.BOND_BLOCKLIST)) return false;
+        if (BuiltInRegistries.ENTITY_TYPE.wrapAsHolder(e.getType()).is(ModTags.CANT_BOND)) return false;
         if (Config.REQUIRE_SADDLEABLE.get() && !(e instanceof Saddleable)) return false;
         if (ClientRosterData.bonds().size() >= ClientRosterData.effectiveMaxBonds()) return false;
         return true;
@@ -581,7 +581,7 @@ public final class RosterScreen extends Screen {
      */
     private boolean atCapacityForHit(Entity e) {
         if (!(e instanceof OwnableEntity)) return false;
-        if (BuiltInRegistries.ENTITY_TYPE.wrapAsHolder(e.getType()).is(ModTags.BOND_BLOCKLIST)) return false;
+        if (BuiltInRegistries.ENTITY_TYPE.wrapAsHolder(e.getType()).is(ModTags.CANT_BOND)) return false;
         if (Config.REQUIRE_SADDLEABLE.get() && !(e instanceof Saddleable)) return false;
         return ClientRosterData.bonds().size() >= ClientRosterData.effectiveMaxBonds();
     }

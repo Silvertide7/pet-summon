@@ -127,7 +127,7 @@ public final class BondManager {
     public static ClaimResult checkClaimEligibility(ServerPlayer player, Entity target) {
         if (!(target instanceof OwnableEntity owned)) return ClaimResult.NOT_OWNABLE;
         if (!player.getUUID().equals(owned.getOwnerUUID())) return ClaimResult.NOT_OWNED_BY_PLAYER;
-        if (BuiltInRegistries.ENTITY_TYPE.wrapAsHolder(target.getType()).is(ModTags.BOND_BLOCKLIST)) return ClaimResult.BLOCKLISTED;
+        if (BuiltInRegistries.ENTITY_TYPE.wrapAsHolder(target.getType()).is(ModTags.CANT_BOND)) return ClaimResult.BLOCKLISTED;
         if (Config.REQUIRE_SADDLEABLE.get() && !(target instanceof Saddleable)) return ClaimResult.REQUIRES_SADDLEABLE;
         BondRoster roster = player.getData(ModAttachments.BOND_ROSTER.get());
         // PMMO gate: when active, the player's effective cap depends on their skill
