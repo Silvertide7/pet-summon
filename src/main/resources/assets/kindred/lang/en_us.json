@@ -44,5 +44,9 @@
   "kindred.summon.global_cooldown": "Summon on cooldown",
   "kindred.summon.reviving": "Pet is respawning",
   "kindred.summon.banned_dimension": "You can't summon pets in this dimension",
-  "kindred.summon.banned_biome": "You can't summon pets in this biome"
+  "kindred.summon.banned_biome": "You can't summon pets in this biome",
+  "kindred.summon.no_space": "Not enough space to summon here",
+  "kindred.summon.player_airborne": "Cannot summon while airborne",
+  "kindred.summon.cross_dim_blocked": "Cross-dimensional summons are disabled",
+  "kindred.bind.success": "Bonded with %s"
 }
