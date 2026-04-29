@@ -16,7 +16,8 @@
       "Bash(javac --version)",
       "Read(//Users/nate/.gradle/caches/**)",
       "Bash(./gradlew --stop)",
-      "Bash(xargs -0 sed -i '' -e 's/PetSummon/Kindred/g' -e 's/petsummon/kindred/g')"
+      "Bash(xargs -0 sed -i '' -e 's/PetSummon/Kindred/g' -e 's/petsummon/kindred/g')",
+      "Bash(unzip -l /Users/nate/.gradle/caches/modules-2/files-2.1/curse.maven/pmmo-353935/7065007/52fec0ccd8c0bf0263e0db8d2cd1d4d6fe66807d/pmmo-353935-7065007.jar)"
     ]
   }
 }

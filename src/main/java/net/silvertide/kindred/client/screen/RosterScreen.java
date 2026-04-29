@@ -18,6 +18,7 @@ import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.silvertide.kindred.client.data.ClientRosterData;
 import net.silvertide.kindred.client.data.PreviewEntityCache;
+import net.silvertide.kindred.compat.pmmo.PmmoMode;
 import net.silvertide.kindred.config.Config;
 import net.silvertide.kindred.network.BondView;
 import net.silvertide.kindred.network.packet.C2SBreakBond;
@@ -221,10 +222,15 @@ public final class RosterScreen extends Screen {
                 PacketDistributor.sendToServer(new C2SCheckBindCandidate(hit.getUUID()));
             } else if (hit != null && atCapacityForHit(hit)) {
                 // Looking at something that *would* be bondable except the roster is
-                // full. Skip the server round-trip and surface the at-capacity message
-                // directly so the footer shows "Max bonds reached" instead of the
-                // generic "look at a tamed pet" hint.
-                bindDenyKey = java.util.Optional.of("kindred.bind.deny.at_capacity");
+                // full. Skip the server round-trip and surface the cap message directly.
+                bindDenyKey = java.util.Optional.of(capDenyKey());
+            } else if (atCapacityNoTarget()) {
+                // No bondable target in view, but the player is at their effective
+                // cap (or below the PMMO start level). Surface the cap message anyway
+                // so the title bar's "X/Y" isn't unexplained — and so LINEAR-mode
+                // players see "Next bond unlocks at X" without having to find a pet
+                // to aim at.
+                bindDenyKey = java.util.Optional.of(capDenyKey());
             }
         }
 
@@ -265,7 +271,7 @@ public final class RosterScreen extends Screen {
         // Bond count (e.g. "3/10") — left-aligned in title bar, mirrors the cooldown
         // indicator on the right.
         int bondCount = ClientRosterData.bonds().size();
-        int maxBonds = Config.MAX_BONDS.get();
+        int maxBonds = ClientRosterData.effectiveMaxBonds();
         g.drawString(font, bondCount + "/" + maxBonds, leftPos + 6, topPos + 8, C_TEXT_MUTED);
 
         // Global cooldown indicator (only when active). Right-aligned in title bar.
@@ -459,14 +465,42 @@ public final class RosterScreen extends Screen {
         }
         // No bindable candidate: show the deny reason if the server gave us one,
         // otherwise the generic "look at a tamed pet" hint. Centered in the rows
-        // column so the preview pane's buttons stay clear. The not-enough-xp key
-        // takes the cost as a positional arg so the player sees the actual amount
-        // ("Requires 10 XP levels to bond") rather than a vague "not enough."
-        Component message = bindDenyKey.map(key ->
-                "kindred.bind.deny.not_enough_xp".equals(key)
-                        ? Component.translatable(key, Config.BOND_XP_LEVEL_COST.get())
-                        : Component.translatable(key))
-                .orElse(Component.translatable("kindred.screen.bind_hint"));
+        // column so the preview pane's buttons stay clear.
+        //
+        // Three keys take positional args so the player sees actual numbers
+        // instead of vague text:
+        //   - not_enough_xp:    %1 = required levels
+        //   - pmmo_locked:      %1 = skill display name (translated via PMMO's
+        //                       pmmo.<skill> lang key), %2 = start level
+        //   - at_capacity:      ordinarily the literal "Max bonds reached", but
+        //                       in PMMO LINEAR mode with room to grow we swap to
+        //                       pmmo_next_unlock with the milestone level so the
+        //                       player sees the upgrade path
+        Component message = bindDenyKey.map(key -> switch (key) {
+            case "kindred.bind.deny.not_enough_xp" ->
+                    Component.translatable(key, Config.BOND_XP_LEVEL_COST.get());
+            case "kindred.bind.deny.pmmo_locked" -> Component.translatable(
+                    key,
+                    Component.translatable("pmmo." + Config.PMMO_SKILL.get()),
+                    Config.PMMO_START_LEVEL.get());
+            case "kindred.bind.deny.at_capacity" -> {
+                int currentBonds = ClientRosterData.bonds().size();
+                if (Config.PMMO_ENABLED.get()
+                        && Config.PMMO_MODE.get() == PmmoMode.LINEAR
+                        && currentBonds < Config.MAX_BONDS.get()) {
+                    // LINEAR formula: bond N unlocks at startLevel + (N-1) * increment.
+                    // Player has currentBonds; next slot unlocks at startLevel +
+                    // currentBonds * increment.
+                    int nextLevel = Config.PMMO_START_LEVEL.get()
+                            + currentBonds * Config.PMMO_INCREMENT_PER_BOND.get();
+                    yield Component.translatable("kindred.bind.deny.pmmo_next_unlock",
+                            Component.translatable("pmmo." + Config.PMMO_SKILL.get()),
+                            nextLevel);
+                }
+                yield Component.translatable(key);
+            }
+            default -> Component.translatable(key);
+        }).orElse(Component.translatable("kindred.screen.bind_hint"));
         g.drawCenteredString(font, message,
                 claimBtnX + claimBtnW / 2,
                 claimBtnY + (CLAIM_BTN_H - font.lineHeight) / 2 + 1,
@@ -514,8 +548,29 @@ public final class RosterScreen extends Screen {
         if (!(e instanceof OwnableEntity)) return false;
         if (BuiltInRegistries.ENTITY_TYPE.wrapAsHolder(e.getType()).is(ModTags.BOND_BLOCKLIST)) return false;
         if (Config.REQUIRE_SADDLEABLE.get() && !(e instanceof Saddleable)) return false;
-        if (ClientRosterData.bonds().size() >= Config.MAX_BONDS.get()) return false;
+        if (ClientRosterData.bonds().size() >= ClientRosterData.effectiveMaxBonds()) return false;
         return true;
+    }
+
+    /**
+     * Returns the deny key for the current at-cap state — pmmo_locked when the
+     * effective cap is 0 (only reachable via PMMO returning a sub-startLevel
+     * skill, since the {@code maxBonds} config has a min of 1), otherwise the
+     * regular at_capacity. The renderer further refines at_capacity into the
+     * pmmo_next_unlock variant when LINEAR mode has more headroom.
+     */
+    private static String capDenyKey() {
+        return ClientRosterData.effectiveMaxBonds() == 0
+                ? "kindred.bind.deny.pmmo_locked"
+                : "kindred.bind.deny.at_capacity";
+    }
+
+    /** True if the player has no remaining bond slots, regardless of what
+     *  they're aiming at. Distinct from {@link #atCapacityForHit}: this one
+     *  doesn't care about the entity in view, just the roster size vs. cap. */
+    private static boolean atCapacityNoTarget() {
+        int cap = ClientRosterData.effectiveMaxBonds();
+        return cap == 0 || ClientRosterData.bonds().size() >= cap;
     }
 
     /**
@@ -528,7 +583,7 @@ public final class RosterScreen extends Screen {
         if (!(e instanceof OwnableEntity)) return false;
         if (BuiltInRegistries.ENTITY_TYPE.wrapAsHolder(e.getType()).is(ModTags.BOND_BLOCKLIST)) return false;
         if (Config.REQUIRE_SADDLEABLE.get() && !(e instanceof Saddleable)) return false;
-        return ClientRosterData.bonds().size() >= Config.MAX_BONDS.get();
+        return ClientRosterData.bonds().size() >= ClientRosterData.effectiveMaxBonds();
     }
 
     private void processRowHold(int mouseX, int mouseY) {

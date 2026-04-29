@@ -1,6 +1,7 @@
 package net.silvertide.kindred.config;
 
 import net.neoforged.neoforge.common.ModConfigSpec;
+import net.silvertide.kindred.compat.pmmo.PmmoMode;
 
 public final class Config {
     private static final ModConfigSpec.Builder BUILDER = new ModConfigSpec.Builder();
@@ -115,6 +116,39 @@ public final class Config {
             .comment("",
                      "If true, taking damage cancels any in-progress summon/dismiss hold (mirrors vanilla bow-draw / eating interrupt).")
             .define("cancelHoldOnDamage", true);
+
+    static { BUILDER.pop(); }
+
+    // ───── PMMO compat (Project MMO) ─────
+    static { BUILDER.push("pmmo"); }
+
+    public static final ModConfigSpec.BooleanValue PMMO_ENABLED = BUILDER
+            .comment("Master toggle for PMMO integration. No-op if PMMO isn't loaded.")
+            .define("pmmoEnabled", false);
+
+    public static final ModConfigSpec.ConfigValue<String> PMMO_SKILL = BUILDER
+            .comment("",
+                     "PMMO skill ID gating bond claims. Used both as the API key " +
+                     "(\"charisma\" → APIUtils.getLevel(\"charisma\", player)) and " +
+                     "as the lang-key suffix (pmmo.charisma → display name resolved " +
+                     "via PMMO's en_us.json).")
+            .define("pmmoSkill", "charisma");
+
+    public static final ModConfigSpec.EnumValue<PmmoMode> PMMO_MODE = BUILDER
+            .comment("",
+                     "ALL_OR_NOTHING: at pmmoStartLevel, all bonds up to maxBonds unlock at once.",
+                     "LINEAR: 1 bond at pmmoStartLevel; +1 every pmmoIncrementPerBond levels above, capped at maxBonds.")
+            .defineEnum("pmmoMode", PmmoMode.ALL_OR_NOTHING);
+
+    public static final ModConfigSpec.IntValue PMMO_START_LEVEL = BUILDER
+            .comment("",
+                     "Skill level required for the first bond.")
+            .defineInRange("pmmoStartLevel", 3, 0, 1000);
+
+    public static final ModConfigSpec.IntValue PMMO_INCREMENT_PER_BOND = BUILDER
+            .comment("",
+                     "Levels per additional bond in LINEAR mode. Ignored in ALL_OR_NOTHING.")
+            .defineInRange("pmmoIncrementPerBond", 2, 1, 1000);
 
     static { BUILDER.pop(); }
 

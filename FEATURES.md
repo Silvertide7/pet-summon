@@ -113,7 +113,8 @@ Needed once people deploy this on multiplayer.
 - **CompactMachines / dimension-bridging mods** — make sure cross-dim summon respects their dimension types.
 - **Citadel / GeckoLib pets** — verify NBT snapshot/restore preserves animation state and other extra-data slots.
 - **Mod menu / Configured** — `ModConfigSpec` already integrates; just make sure category labels are translated.
-- **Project MMO integration.** Optional soft-dep on [Project MMO](https://www.curseforge.com/minecraft/mc-mods/project-mmo). Hooks worth exposing as PMMO XP sources / requirements:
+- ✅ **Project MMO integration — bond-cap gate.** Soft-dep via [Project MMO](https://www.curseforge.com/minecraft/mc-mods/project-mmo). Player's effective bond cap can be gated behind a PMMO skill (default `charisma`). Two modes: `ALL_OR_NOTHING` (at start level, full `maxBonds` unlocks) and `LINEAR` (1 bond at start level, +1 every `pmmoIncrementPerBond` levels above, capped at `maxBonds`). Compat layer at `compat/pmmo/` uses an interface + reflection-bootstrapped impl so PMMO classes are never resolved when PMMO isn't installed. Effective cap ships in `S2CRosterSync` so the title-bar `X/Y` and at-capacity check both reflect it. Below start level, `ClaimResult.PMMO_LOCKED` produces a footer message like "Requires Charisma level 3" using PMMO's own `pmmo.<skill>` lang for the skill display name. Future hooks (XP awards, requirement JSON, `Perk` registration) are separate features.
+- **Project MMO — additional hooks (out of v1).**
   - Award `TAMING` (or a custom `BONDING`) XP when a bond is successfully claimed.
   - Award smaller XP on summon (encourages active use) and on summon distance / cross-dim summon.
   - PMMO requirement gates: minimum skill level to claim a bond, minimum level to break, minimum level for cross-dim summon, etc. Each gate is its own config-driven hook.

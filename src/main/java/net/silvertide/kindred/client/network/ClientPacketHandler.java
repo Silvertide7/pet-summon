@@ -14,7 +14,7 @@ import net.silvertide.kindred.network.packet.S2CRosterSync;
 public final class ClientPacketHandler {
     public static void onRosterSync(S2CRosterSync payload, IPayloadContext context) {
         context.enqueueWork(() -> {
-            ClientRosterData.update(payload.bonds(), payload.globalCooldownRemainingMs());
+            ClientRosterData.update(payload.bonds(), payload.globalCooldownRemainingMs(), payload.effectiveMaxBonds());
             // Invalidate the preview entity cache — any pet's NBT may have changed
             // (saddle, armor, chest contents, age) and the cached LivingEntity instance
             // was built from the previous snapshot. Next render rebuilds from fresh NBT.

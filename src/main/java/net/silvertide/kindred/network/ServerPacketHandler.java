@@ -134,6 +134,7 @@ public final class ServerPacketHandler {
             case AT_CAPACITY -> "kindred.bind.deny.at_capacity";
             case ALREADY_BONDED -> "kindred.bind.deny.already_bonded";
             case NOT_ENOUGH_XP -> "kindred.bind.deny.not_enough_xp";
+            case PMMO_LOCKED -> "kindred.bind.deny.pmmo_locked";
             default -> "kindred.bind.deny.generic";
         };
     }
@@ -243,7 +244,8 @@ public final class ServerPacketHandler {
                 .toList();
         long globalRemaining = GlobalSummonCooldownTracker.get()
                 .remainingMs(player.getUUID(), Config.summonGlobalCooldownMs());
-        PacketDistributor.sendToPlayer(player, new S2CRosterSync(views, globalRemaining));
+        int effectiveCap = BondManager.effectiveMaxBonds(player);
+        PacketDistributor.sendToPlayer(player, new S2CRosterSync(views, globalRemaining, effectiveCap));
     }
 
     private static boolean isSummonSuccess(BondManager.SummonResult result) {

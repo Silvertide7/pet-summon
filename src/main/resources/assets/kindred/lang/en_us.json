@@ -18,6 +18,8 @@
   "kindred.bind.deny.at_capacity": "Max bonds reached",
   "kindred.bind.deny.already_bonded": "That pet is already bonded",
   "kindred.bind.deny.not_enough_xp": "Requires %s XP levels to bond",
+  "kindred.bind.deny.pmmo_locked": "Bonding requires %1$s level %2$s",
+  "kindred.bind.deny.pmmo_next_unlock": "Next bond unlocks at %1$s level %2$s",
   "kindred.bind.deny.generic": "This pet can't be bonded right now",
   "kindred.bind.cost": "Cost: %s levels",
   "kindred.screen.preview_empty": "Select a pet",

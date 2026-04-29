@@ -21,6 +21,7 @@ import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.OwnableEntity;
 import net.minecraft.world.entity.Saddleable;
 import net.minecraft.world.entity.TamableAnimal;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.CampfireBlock;
@@ -31,6 +32,8 @@ import net.silvertide.kindred.Kindred;
 import net.silvertide.kindred.attachment.Bond;
 import net.silvertide.kindred.attachment.BondRoster;
 import net.silvertide.kindred.attachment.Bonded;
+import net.silvertide.kindred.compat.pmmo.PmmoCompat;
+import net.silvertide.kindred.compat.pmmo.PmmoMode;
 import net.silvertide.kindred.config.Config;
 import net.silvertide.kindred.registry.ModAttachments;
 import net.silvertide.kindred.registry.ModTags;
@@ -58,7 +61,8 @@ public final class BondManager {
         REQUIRES_SADDLEABLE,
         AT_CAPACITY,
         ALREADY_BONDED,
-        NOT_ENOUGH_XP
+        NOT_ENOUGH_XP,
+        PMMO_LOCKED
     }
 
     public enum BreakResult {
@@ -89,6 +93,33 @@ public final class BondManager {
     }
 
     /**
+     * Effective bond cap for a player. Without PMMO active, this is just the
+     * configured {@code maxBonds}. With PMMO active and the gate enabled, the cap
+     * scales by skill level per the configured {@link PmmoMode}.
+     *
+     * <ul>
+     *   <li>{@code skillLevel < pmmoStartLevel} → 0 (player is locked out entirely).</li>
+     *   <li>{@code ALL_OR_NOTHING} above start level → full {@code maxBonds}.</li>
+     *   <li>{@code LINEAR} above start level →
+     *       {@code min(maxBonds, ((skillLevel - pmmoStartLevel) / pmmoIncrementPerBond) + 1)}.</li>
+     * </ul>
+     *
+     * <p>{@code maxBonds} is always the hard ceiling — PMMO can only restrict, never
+     * grant more bonds than the global cap allows.</p>
+     */
+    public static int effectiveMaxBonds(Player player) {
+        int hardCap = Config.MAX_BONDS.get();
+        if (!Config.PMMO_ENABLED.get() || !PmmoCompat.isAvailable()) return hardCap;
+        long level = PmmoCompat.getSkillLevel(player, Config.PMMO_SKILL.get());
+        int startLevel = Config.PMMO_START_LEVEL.get();
+        if (level < startLevel) return 0;
+        if (Config.PMMO_MODE.get() == PmmoMode.ALL_OR_NOTHING) return hardCap;
+        int increment = Math.max(1, Config.PMMO_INCREMENT_PER_BOND.get());
+        long allowed = ((level - startLevel) / increment) + 1;
+        return (int) Math.min(hardCap, allowed);
+    }
+
+    /**
      * Run the same eligibility checks {@link #tryClaim} would, without mutating
      * anything. Used by the bind-candidate validation packet so the screen can
      * hide the Bind button for entities the server would refuse anyway.
@@ -99,7 +130,14 @@ public final class BondManager {
         if (BuiltInRegistries.ENTITY_TYPE.wrapAsHolder(target.getType()).is(ModTags.BOND_BLOCKLIST)) return ClaimResult.BLOCKLISTED;
         if (Config.REQUIRE_SADDLEABLE.get() && !(target instanceof Saddleable)) return ClaimResult.REQUIRES_SADDLEABLE;
         BondRoster roster = player.getData(ModAttachments.BOND_ROSTER.get());
-        if (roster.size() >= Config.MAX_BONDS.get()) return ClaimResult.AT_CAPACITY;
+        // PMMO gate: when active, the player's effective cap depends on their skill
+        // level. Cap of 0 means below the start level entirely (PMMO_LOCKED). Hitting
+        // the cap with bonds already filled reuses AT_CAPACITY — message-wise that
+        // reads identically to "config max" so the player always sees "Max bonds
+        // reached" without us inventing PMMO-flavored copy.
+        int effectiveCap = effectiveMaxBonds(player);
+        if (effectiveCap == 0) return ClaimResult.PMMO_LOCKED;
+        if (roster.size() >= effectiveCap) return ClaimResult.AT_CAPACITY;
         if (target.hasData(ModAttachments.BONDED.get())) return ClaimResult.ALREADY_BONDED;
         // XP gate runs last so the player sees more-specific reasons first (not yours,
         // blocklisted, etc.) instead of "save up XP" for an entity they could never
