@@ -632,12 +632,14 @@ public final class BondService {
     }
 
     /**
-     * "Grounded" tolerance: the player is grounded if {@link Entity#onGround()} or there's
-     * a sturdy block within ~2 blocks below their feet. Lets a small jump or step-down
-     * succeed; refuses high-altitude flying.
+     * "Grounded" tolerance: the player is grounded if {@link Entity#onGround()},
+     * swimming/floating in water, or there's a sturdy block within ~2 blocks below
+     * their feet. Lets a small jump or step-down succeed and lets aquatic-mob owners
+     * summon while swimming; refuses high-altitude flying.
      */
     private static boolean isPlayerGrounded(ServerPlayer player) {
         if (player.onGround()) return true;
+        if (Config.ALLOW_WATER_SUMMON.get() && player.isInWater()) return true;
         Level level = player.level();
         BlockPos feet = player.blockPosition();
         for (int dy = 0; dy <= 2; dy++) {
@@ -700,7 +702,20 @@ public final class BondService {
             Optional<Vec3> spot = tryColumn(level, pp.offset(c.dx, 0, c.dz), dims, true);
             if (spot.isPresent()) return spot;
         }
-        return tryColumn(level, pp, dims, true);
+        Optional<Vec3> wetOnPlayer = tryColumn(level, pp, dims, true);
+        if (wetOnPlayer.isPresent()) return wetOnPlayer;
+
+        // Submerged fallback: when the player is swimming with no sturdy floor in
+        // reach (open water, deep ocean), spawn the pet at the player's position.
+        // tryColumn requires a face-sturdy floor, so a deep-water column always
+        // returns empty otherwise. Aquatic mobs handle this fine; non-aquatic mobs
+        // will start drowning, but that's a player decision — same trade-off as
+        // summoning on a cliff edge. Gated by config so users can keep the stricter
+        // dry-land-only behavior if they prefer.
+        if (Config.ALLOW_WATER_SUMMON.get() && player.isInWater()) {
+            return Optional.of(player.position());
+        }
+        return Optional.empty();
     }
 
     private static Optional<Vec3> tryColumn(ServerLevel level, BlockPos start, EntityDimensions dims, boolean allowWater) {

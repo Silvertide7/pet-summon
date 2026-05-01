@@ -57,6 +57,15 @@ public final class Config {
                      "If true, refuse to summon when the 3x3x3 space around the player is obstructed.")
             .define("requireSpace", true);
 
+    public static final ModConfigSpec.BooleanValue ALLOW_WATER_SUMMON = BUILDER
+            .comment("",
+                     "If true, allow summoning while the player is swimming/floating in water, " +
+                     "and spawn the pet at the player's position when no land footprint is available " +
+                     "(e.g. open ocean). Disable to keep the stricter dry-land-only behavior — pets " +
+                     "won't summon while you're in deep water. Aquatic mobs benefit; non-aquatic mobs " +
+                     "summoned this way will start drowning.")
+            .define("allowWaterSummon", true);
+
     static { BUILDER.pop(); }
 
     // ───── Cooldowns ─────
